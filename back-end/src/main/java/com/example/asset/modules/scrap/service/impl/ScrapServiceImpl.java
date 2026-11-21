@@ -1,0 +1,367 @@
+package com.example.asset.modules.scrap.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.asset.common.exception.BusinessException;
+import com.example.asset.modules.approval.entity.ApprovalRecord;
+import com.example.asset.modules.approval.flow.ApplyWorkflowService;
+import com.example.asset.modules.approval.flow.WorkflowBizContext;
+import com.example.asset.modules.approval.mapper.ApprovalRecordMapper;
+import com.example.asset.modules.asset.entity.Asset;
+import com.example.asset.modules.asset.mapper.AssetMapper;
+import com.example.asset.modules.scrap.entity.ScrapOrder;
+import com.example.asset.modules.scrap.mapper.ScrapOrderMapper;
+import com.example.asset.modules.scrap.service.ScrapService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.flowable.task.api.Task;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.time.LocalDateTime;
+import java.util.Map;
+
+/**
+ * 报废审批服务。
+ *
+ * <p><b>双路分流设计</b>（与领用/归还模块一致）：报废单是否由 Flowable 驱动，
+ * 完全取决于 {@code scrap_order.process_instance_id} 是否为空。</p>
+ * <ul>
+ *   <li><b>非空</b> → 已发起 BPMN 流程实例，审批走 {@link #approveByWorkflow}，
+ *       「现在该谁办」「通过后去哪」由 BPMN 定义决定；</li>
+ *   <li><b>为空</b> → 未接入工作流（存量数据），审批走 {@link #approveByStatusMachine}，
+ *       即改造前的硬编码状态机逻辑。</li>
+ * </ul>
+ *
+ * <p>报废与领用共用同一个 BPMN 流程定义（{@code assetApplyApproval}），
+ * 因为两者的两级审批流转规则完全一致（院系初审 → 校级复审）。
+ * 差异只在业务侧：报废的「业务类型」固定为 {@link #BIZ_TYPE}，
+ * 且终审通过后资产状态固定置为「已报废」。</p>
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ScrapServiceImpl implements ScrapService {
+
+    /** 业务类型标识。报废单没有 applyType 字段，这里用字面量接入工作流开关 */
+    private static final String BIZ_TYPE = "SCRAP";
+
+    private final ScrapOrderMapper scrapOrderMapper;
+    private final AssetMapper assetMapper;
+    private final ApprovalRecordMapper approvalRecordMapper;
+    private final ApplyWorkflowService applyWorkflowService;
+
+    /**
+     * 提交报废申请。
+     *
+     * <p>注意：本方法原实现没有 {@code @Transactional}，接入 Flowable 后必须补上 ——
+     * 否则「申请单落库」与「启动流程实例」会各自独立提交，
+     * 一旦启动流程失败，就会留下一条 {@code process_instance_id} 为 NULL 的申请单，
+     * 该单子会静默回落到老状态机分支，在引擎里查不到任何流程痕迹。</p>
+     */
+    @Override
+    @Transactional
+    public void submitScrap(ScrapOrder order) {
+        // 校验资产状态：已报废的资产不允许重复报废（原有校验，保持原样）
+        Asset asset = assetMapper.selectById(order.getAssetId());
+        if (asset == null) {
+            throw new BusinessException("资产不存在");
+        }
+        if ("已报废".equals(asset.getStatus())) {
+            throw new BusinessException("该资产已报废，请勿重复操作");
+        }
+
+        order.setStatus("PENDING_FIRST");
+        scrapOrderMapper.insert(order);
+
+        // ===================== Flowable 分支 =====================
+        if (applyWorkflowService.supports(BIZ_TYPE)) {
+            String processInstanceId = applyWorkflowService.start(toContext(order));
+            order.setProcessInstanceId(processInstanceId);
+            scrapOrderMapper.updateById(order);
+            log.info("报废单 {} 已发起 Flowable 流程实例 {}", order.getScrapNo(), processInstanceId);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void approve(Long orderId, Long approveUserId, String approveUserName, Integer roleId,
+                        Long approveUserDeptId, String level, String result, String comment) {
+        ScrapOrder order = scrapOrderMapper.selectById(orderId);
+        if (order == null) {
+            throw new BusinessException("报废申请单不存在");
+        }
+
+        // 分流：已发起流程实例的报废单交给 Flowable，其余保持原有状态机逻辑
+        if (StringUtils.hasText(order.getProcessInstanceId())) {
+            approveByWorkflow(order, approveUserId, approveUserName, roleId,
+                              approveUserDeptId, level, result, comment);
+        } else {
+            approveByStatusMachine(order, approveUserId, approveUserName, roleId,
+                                   approveUserDeptId, level, result, comment);
+        }
+    }
+
+    /* ====================================================================================
+     *  路径一：Flowable 驱动（scrap_order.process_instance_id 非空）
+     * ==================================================================================== */
+
+    private void approveByWorkflow(ScrapOrder order, Long approveUserId, String approveUserName, Integer roleId,
+                                   Long approveUserDeptId, String level, String result, String comment) {
+        // 1. 普通师生无权审批
+        if (roleId != null && roleId == 3) {
+            throw new BusinessException("权限不足：普通师生无权进行审批操作");
+        }
+
+        // 2. 不能审批自己提交的申请
+        if (approveUserId.equals(order.getApplyUserId())) {
+            throw new BusinessException("不能审批自己提交的申请");
+        }
+
+        // 3. 从引擎取出“当前待办任务” —— 现在该谁办、处于哪一级，全部以流程实例为准，
+        //    不再依赖前端传入的 level，从根上避免前端状态过期导致的错审。
+        Task task = applyWorkflowService.currentTask(order.getProcessInstanceId());
+        if (task == null) {
+            throw new BusinessException("当前流程已结束，无可办理的审批任务");
+        }
+        String currentLevel = applyWorkflowService.levelOf(task);
+        if (currentLevel == null) {
+            throw new BusinessException("流程当前节点不支持人工审批：" + task.getTaskDefinitionKey());
+        }
+
+        // 4. 前端传入的层级必须与流程当前节点一致（防止页面未刷新导致重复审批）
+        if (level != null && !level.equals(currentLevel)) {
+            throw new BusinessException("审批层级与流程当前节点不一致，请刷新页面后重试");
+        }
+
+        // 5. 角色与院系隔离规则（与改造前完全一致）
+        if (roleId != null && roleId == 2) {
+            if (ApplyWorkflowService.LEVEL_SECOND.equals(currentLevel)) {
+                throw new BusinessException("权限不足：学院管理员仅可进行初审操作");
+            }
+            if (order.getDeptId() == null || !order.getDeptId().equals(approveUserDeptId)) {
+                throw new BusinessException("权限不足：学院管理员仅可审批本学院的报废单");
+            }
+        } else if (roleId != null && roleId == 1 && !ApplyWorkflowService.LEVEL_SECOND.equals(currentLevel)) {
+            throw new BusinessException("权限不足：超级管理员仅可进行复审操作");
+        }
+
+        // 6. 业务状态与流程节点必须一致（并发保护第一道闸）
+        String expectedStatus = applyWorkflowService.statusOf(task);
+        if (!expectedStatus.equals(order.getStatus())) {
+            throw new BusinessException("报废单状态与流程节点不一致，请刷新页面后重试");
+        }
+
+        boolean approved = "PASS".equals(result);
+
+        // 7. 写审批记录（前端详情页的“审批记录”表格依赖该表）
+        ApprovalRecord record = new ApprovalRecord();
+        record.setApplyId(order.getId());
+        record.setApplyType(BIZ_TYPE);          // 共用表，靠 apply_type 与领用记录区分
+        record.setApproveLevel(currentLevel);
+        record.setApproveUserId(approveUserId);
+        record.setApproveUserName(approveUserName);
+        record.setResult(result);
+        record.setComment(comment);
+        record.setApproveTime(LocalDateTime.now());
+        approvalRecordMapper.insert(record);
+
+        // 8. 办理任务：写入 firstApproved/secondApproved 流程变量，由排他网关决定下一步
+        applyWorkflowService.complete(task, toContext(order), approved, approveUserId, approveUserName, comment);
+
+        // 9. 依据流程实例的真实状态回写 scrap_order.status，保持前端既有的状态常量契约不变
+        Task nextTask = applyWorkflowService.currentTask(order.getProcessInstanceId());
+        String newStatus;
+        if (nextTask != null) {
+            newStatus = applyWorkflowService.statusOf(nextTask);
+            if (newStatus == null) {
+                throw new BusinessException("流程进入未知节点：" + nextTask.getTaskDefinitionKey());
+            }
+        } else {
+            // 流程已结束：通过 → COMPLETED；驳回 → 按层级区分
+            newStatus = approved
+                    ? "COMPLETED"
+                    : (ApplyWorkflowService.LEVEL_FIRST.equals(currentLevel) ? "FIRST_REJECT" : "SECOND_REJECT");
+        }
+
+        // 10. 原子更新（乐观锁，并发保护第二道闸）：
+        //     若此处抛异常，整个事务回滚，第 8 步的 Flowable 任务办理也会一并回滚，
+        //     因为 MyBatis 与 Flowable 共享同一个 DataSource 与事务管理器。
+        LambdaUpdateWrapper<ScrapOrder> updateWrapper = new LambdaUpdateWrapper<>();
+        updateWrapper.eq(ScrapOrder::getId, order.getId())
+                     .eq(ScrapOrder::getStatus, order.getStatus())   // 当前状态必须等于旧值
+                     .set(ScrapOrder::getStatus, newStatus);
+        int rows = scrapOrderMapper.update(null, updateWrapper);
+        if (rows == 0) {
+            throw new BusinessException("审批失败：订单状态已被他人修改，请刷新页面后重试");
+        }
+
+        // 11. 复审通过且流程正常结束 → 资产置为已报废并清空使用人
+        if (approved && nextTask == null && ApplyWorkflowService.LEVEL_SECOND.equals(currentLevel)) {
+            scrapAsset(order);
+        }
+    }
+
+    /* ====================================================================================
+     *  路径二：原有硬编码状态机（scrap_order.process_instance_id 为空）
+     *  保留作为兜底：存量数据仍按原逻辑审批，行为与改造前完全一致。
+     * ==================================================================================== */
+
+    private void approveByStatusMachine(ScrapOrder order, Long approveUserId, String approveUserName, Integer roleId,
+                                        Long approveUserDeptId, String level, String result, String comment) {
+        Long orderId = order.getId();
+        String currentStatus = order.getStatus();
+
+        // 1. 普通师生无权审批
+        if (roleId == 3) {
+            throw new BusinessException("权限不足：普通师生无权进行审批操作");
+        }
+
+        // 2. 不能审批自己提交的申请
+        if (approveUserId.equals(order.getApplyUserId())) {
+            throw new BusinessException("不能审批自己提交的申请");
+        }
+
+        // 3. 院系隔离：学院管理员只能审批本学院（部门）的报废单
+        if (roleId == 2) {
+            if (order.getDeptId() == null || !order.getDeptId().equals(approveUserDeptId)) {
+                throw new BusinessException("权限不足：学院管理员仅可审批本学院的报废单");
+            }
+        }
+
+        // 4. 学院管理员只能做初审，超级管理员做复审
+        if (roleId == 2 && !"FIRST".equals(level)) {
+            throw new BusinessException("权限不足：学院管理员仅可进行初审操作");
+        }
+        if (roleId == 1 && !"SECOND".equals(level)) {
+            throw new BusinessException("权限不足：超级管理员仅可进行复审操作");
+        }
+
+        // 4. 校验审批层级与订单当前状态匹配
+        if ("FIRST".equals(level) && !"PENDING_FIRST".equals(currentStatus)) {
+            throw new BusinessException("当前订单状态不允许初审");
+        }
+        if ("SECOND".equals(level) && !"PENDING_SECOND".equals(currentStatus)) {
+            throw new BusinessException("当前订单状态不允许复审");
+        }
+
+        // 保存审批记录
+        ApprovalRecord record = new ApprovalRecord();
+        record.setApplyId(orderId);
+        record.setApplyType(BIZ_TYPE);
+        record.setApproveLevel(level);
+        record.setApproveUserId(approveUserId);
+        record.setApproveUserName(approveUserName);
+        record.setResult(result);
+        record.setComment(comment);
+        record.setApproveTime(LocalDateTime.now());
+        approvalRecordMapper.insert(record);
+
+        // 原子更新：仅当状态未变更时才写入，防止并发重复审批
+        String newStatus;
+        if ("FIRST".equals(level)) {
+            newStatus = "PASS".equals(result) ? "PENDING_SECOND" : "FIRST_REJECT";
+        } else {
+            newStatus = "PASS".equals(result) ? "COMPLETED" : "SECOND_REJECT";
+        }
+
+        LambdaUpdateWrapper<ScrapOrder> updateWrapper = new LambdaUpdateWrapper<>();
+        updateWrapper.eq(ScrapOrder::getId, orderId)
+                     .eq(ScrapOrder::getStatus, currentStatus)
+                     .set(ScrapOrder::getStatus, newStatus);
+        int rows = scrapOrderMapper.update(null, updateWrapper);
+        if (rows == 0) {
+            throw new BusinessException("审批失败：订单状态已被他人修改，请刷新页面后重试");
+        }
+
+        // 复审通过时更新资产状态为已报废
+        if ("SECOND".equals(level) && "PASS".equals(result)) {
+            scrapAsset(order);
+        }
+    }
+
+    /**
+     * 报废终审通过：资产置为「已报废」并清空使用人。
+     * <p>与领用不同，报废不需要按申请类型分支，只有这一种收尾动作。</p>
+     */
+    private void scrapAsset(ScrapOrder order) {
+        Asset asset = assetMapper.selectById(order.getAssetId());
+        if (asset == null) {
+            return;
+        }
+        LambdaUpdateWrapper<Asset> assetUpdate = new LambdaUpdateWrapper<>();
+        assetUpdate.eq(Asset::getId, asset.getId())
+                   .set(Asset::getStatus, "已报废")
+                   .set(Asset::getUserId, null)
+                   .set(Asset::getUserName, null);
+        assetMapper.update(null, assetUpdate);
+    }
+
+    /** 报废单 → 流程上下文（本包不反向依赖 approval，故在此拼装） */
+    private WorkflowBizContext toContext(ScrapOrder order) {
+        return new WorkflowBizContext(
+                order.getId(),
+                order.getScrapNo(),
+                BIZ_TYPE,
+                order.getAssetId(),
+                order.getAssetCode(),
+                order.getAssetName(),
+                order.getDeptId(),
+                order.getDeptName(),
+                order.getApplyUserId(),
+                order.getApplyUserName());
+    }
+
+    /* ====================================================================================
+     *  查询（与改造前完全一致，前端无需改动）
+     * ==================================================================================== */
+
+    @Override
+    public IPage<ScrapOrder> pageOrders(int current, int size, String status, Long deptId,
+                                         Long currentUserDeptId, Integer currentUserRoleId) {
+        LambdaQueryWrapper<ScrapOrder> wrapper = new LambdaQueryWrapper<>();
+        if (status != null) {
+            wrapper.eq(ScrapOrder::getStatus, status);
+        }
+
+        // 院系隔离：学院管理员只能查看本学院的报废单，超级管理员可查看全部
+        if (currentUserRoleId != null && currentUserRoleId == 2) {
+            // 学院管理员：强制按自己的院系过滤，忽略前端传入的 deptId
+            wrapper.eq(ScrapOrder::getDeptId, currentUserDeptId);
+        } else if (currentUserRoleId != null && currentUserRoleId == 1 && deptId != null) {
+            // 超级管理员：可选按院系过滤
+            wrapper.eq(ScrapOrder::getDeptId, deptId);
+        }
+
+        wrapper.orderByDesc(ScrapOrder::getCreateTime);
+        return scrapOrderMapper.selectPage(new Page<>(current, size), wrapper);
+    }
+
+    @Override
+    public Map<String, Object> getScrapDetail(Long id, Long currentUserDeptId, Integer currentUserRoleId) {
+        ScrapOrder order = scrapOrderMapper.selectById(id);
+        if (order == null) {
+            throw new BusinessException("报废申请单不存在");
+        }
+
+        // 院系隔离：学院管理员只能查看本学院的报废单详情
+        if (currentUserRoleId != null && currentUserRoleId == 2) {
+            if (order.getDeptId() == null || !order.getDeptId().equals(currentUserDeptId)) {
+                throw new BusinessException("权限不足：学院管理员仅可查看本学院的报废单");
+            }
+        }
+
+        LambdaQueryWrapper<ApprovalRecord> recordWrapper = new LambdaQueryWrapper<>();
+        recordWrapper.eq(ApprovalRecord::getApplyId, id)
+                     .eq(ApprovalRecord::getApplyType, "SCRAP")
+                     .orderByAsc(ApprovalRecord::getApproveLevel);
+        java.util.List<ApprovalRecord> records = approvalRecordMapper.selectList(recordWrapper);
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        result.put("order", order);
+        result.put("records", records);
+        return result;
+    }
+}

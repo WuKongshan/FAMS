@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI"
+             typeLanguage="http://www.w3.org/2001/XMLSchema"
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://www.flowable.org/processdef">
+
+    <!--
+      ============================================================================
+      资产领用/归还 两级审批流程（BPMN 2.0）
+      ============================================================================
+      processKey : assetApplyApproval
+                   Java 侧常量见 ApplyWorkflowService / application.yml
+
+      流转路径：
+        提交申请 ===> 院系初审 ==通过==> 校级复审 ==通过==> 审批通过（结束）
+                          |                   |
+                          +==驳回==> 初审驳回   +==驳回==> 复审驳回
+
+      流程变量：
+        applyId / applyNo / applyType / assetId / assetCode / assetName
+        deptId / deptName / applyUserId / applyUserName
+        firstApproved  : Boolean，初审是否通过（办理 firstApproval 时写入）
+        secondApproved : Boolean，复审是否通过（办理 secondApproval 时写入）
+
+      踩坑提醒：
+        XML 注释中不允许出现连续两个减号（两条短横线紧挨着），因此本文件的分隔线一律使用 = 号。
+        若用减号画长横线作分隔，Flowable 部署时会抛 XMLStreamException: ParseError。
+      ============================================================================
+    -->
+    <process id="assetApplyApproval" name="资产领用归还审批流程" isExecutable="true">
+
+        <documentation>高校固定资产领用/归还申请的两级审批流程：先由申请人所在学院的资产管理员初审，再由校级超级管理员复审。</documentation>
+
+        <!-- ==================== 1. 提交申请 ==================== -->
+        <startEvent id="startEvent" name="提交申请">
+            <documentation>申请人提交领用/归还申请后，由服务层发起本流程实例。</documentation>
+        </startEvent>
+
+        <sequenceFlow id="flowStartToFirst" sourceRef="startEvent" targetRef="firstApproval"/>
+
+        <!-- ==================== 2. 院系初审 ==================== -->
+        <userTask id="firstApproval" name="院系初审" flowable:candidateGroups="ROLE_DEPT_ADMIN">
+            <documentation>由申请人所属学院的资产管理员办理，仅可办理本学院申请单。</documentation>
+        </userTask>
+
+        <sequenceFlow id="flowFirstToGateway" sourceRef="firstApproval" targetRef="gatewayFirst"/>
+
+        <!-- ==================== 3. 初审结果网关 ==================== -->
+        <exclusiveGateway id="gatewayFirst" name="初审结果" default="flowFirstReject"/>
+
+        <sequenceFlow id="flowFirstPass" name="通过" sourceRef="gatewayFirst" targetRef="secondApproval">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${firstApproved == true}]]></conditionExpression>
+        </sequenceFlow>
+
+        <sequenceFlow id="flowFirstReject" name="驳回" sourceRef="gatewayFirst" targetRef="endFirstRejected"/>
+
+        <!-- ==================== 4. 校级复审 ==================== -->
+        <userTask id="secondApproval" name="校级复审" flowable:candidateGroups="ROLE_ADMIN">
+            <documentation>由校级超级管理员办理。</documentation>
+        </userTask>
+
+        <sequenceFlow id="flowSecondToGateway" sourceRef="secondApproval" targetRef="gatewaySecond"/>
+
+        <!-- ==================== 5. 复审结果网关 ==================== -->
+        <exclusiveGateway id="gatewaySecond" name="复审结果" default="flowSecondReject"/>
+
+        <sequenceFlow id="flowSecondPass" name="通过" sourceRef="gatewaySecond" targetRef="endApproved">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${secondApproved == true}]]></conditionExpression>
+        </sequenceFlow>
+
+        <sequenceFlow id="flowSecondReject" name="驳回" sourceRef="gatewaySecond" targetRef="endSecondRejected"/>
+
+        <!-- ==================== 6. 结束事件 ==================== -->
+        <endEvent id="endApproved" name="审批通过"/>
+        <endEvent id="endFirstRejected" name="初审驳回"/>
+        <endEvent id="endSecondRejected" name="复审驳回"/>
+
+    </process>
+
+    <!-- ==================== 图形布局（供 Flowable Designer / bpmn.js 展示） ==================== -->
+    <bpmndi:BPMNDiagram id="BPMNDiagramAssetApplyApproval">
+        <bpmndi:BPMNPlane bpmnElement="assetApplyApproval" id="BPMNPlaneAssetApplyApproval">
+
+            <bpmndi:BPMNShape bpmnElement="startEvent" id="Shape_startEvent">
+                <omgdc:Bounds height="36.0" width="36.0" x="150.0" y="180.0"/>
+                <bpmndi:BPMNLabel><omgdc:Bounds height="18.0" width="80.0" x="128.0" y="221.0"/></bpmndi:BPMNLabel>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNShape bpmnElement="firstApproval" id="Shape_firstApproval">
+                <omgdc:Bounds height="80.0" width="120.0" x="250.0" y="158.0"/>
+                <bpmndi:BPMNLabel/>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNShape bpmnElement="gatewayFirst" id="Shape_gatewayFirst">
+                <omgdc:Bounds height="40.0" width="40.0" x="430.0" y="178.0"/>
+                <bpmndi:BPMNLabel><omgdc:Bounds height="18.0" width="80.0" x="410.0" y="149.0"/></bpmndi:BPMNLabel>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNShape bpmnElement="secondApproval" id="Shape_secondApproval">
+                <omgdc:Bounds height="80.0" width="120.0" x="530.0" y="158.0"/>
+                <bpmndi:BPMNLabel/>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNShape bpmnElement="gatewaySecond" id="Shape_gatewaySecond">
+                <omgdc:Bounds height="40.0" width="40.0" x="710.0" y="178.0"/>
+                <bpmndi:BPMNLabel><omgdc:Bounds height="18.0" width="80.0" x="690.0" y="149.0"/></bpmndi:BPMNLabel>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNShape bpmnElement="endApproved" id="Shape_endApproved">
+                <omgdc:Bounds height="36.0" width="36.0" x="810.0" y="180.0"/>
+                <bpmndi:BPMNLabel><omgdc:Bounds height="18.0" width="80.0" x="788.0" y="221.0"/></bpmndi:BPMNLabel>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNShape bpmnElement="endFirstRejected" id="Shape_endFirstRejected">
+                <omgdc:Bounds height="36.0" width="36.0" x="432.0" y="330.0"/>
+                <bpmndi:BPMNLabel><omgdc:Bounds height="18.0" width="80.0" x="410.0" y="371.0"/></bpmndi:BPMNLabel>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNShape bpmnElement="endSecondRejected" id="Shape_endSecondRejected">
+                <omgdc:Bounds height="36.0" width="36.0" x="712.0" y="330.0"/>
+                <bpmndi:BPMNLabel><omgdc:Bounds height="18.0" width="80.0" x="690.0" y="371.0"/></bpmndi:BPMNLabel>
+            </bpmndi:BPMNShape>
+
+            <bpmndi:BPMNEdge bpmnElement="flowStartToFirst" id="Edge_flowStartToFirst">
+                <omgdi:waypoint x="186.0" y="198.0"/>
+                <omgdi:waypoint x="250.0" y="198.0"/>
+            </bpmndi:BPMNEdge>
+
+            <bpmndi:BPMNEdge bpmnElement="flowFirstToGateway" id="Edge_flowFirstToGateway">
+                <omgdi:waypoint x="370.0" y="198.0"/>
+                <omgdi:waypoint x="430.0" y="198.0"/>
+            </bpmndi:BPMNEdge>
+
+            <bpmndi:BPMNEdge bpmnElement="flowFirstPass" id="Edge_flowFirstPass">
+                <omgdi:waypoint x="470.0" y="198.0"/>
+                <omgdi:waypoint x="530.0" y="198.0"/>
+                <bpmndi:BPMNLabel><omgdc:Bounds height="18.0" width="40.0" x="480.0" y="180.0"/></bpmndi:BPMNLabel>
+            </bpmndi:BPMNEdge>
+
+            <bpmndi:BPMNEdge bpmnElement="flowFirstReject" id="Edge_flowFirstReject">
+                <omgdi:waypoint x="450.0" y="218.0"/>
+                <omgdi:waypoint x="450.0" y="330.0"/>
+                <bpmndi:BPMNLabel><omgdc:Bounds height="18.0" width="40.0" x="455.0" y="265.0"/></bpmndi:BPMNLabel>
+            </bpmndi:BPMNEdge>
+
+            <bpmndi:BPMNEdge bpmnElement="flowSecondToGateway" id="Edge_flowSecondToGateway">
+                <omgdi:waypoint x="650.0" y="198.0"/>
+                <omgdi:waypoint x="710.0" y="198.0"/>
+            </bpmndi:BPMNEdge>
+
+            <bpmndi:BPMNEdge bpmnElement="flowSecondPass" id="Edge_flowSecondPass">
+                <omgdi:waypoint x="750.0" y="198.0"/>
+                <omgdi:waypoint x="810.0" y="198.0"/>
+                <bpmndi:BPMNLabel><omgdc:Bounds height="18.0" width="40.0" x="760.0" y="180.0"/></bpmndi:BPMNLabel>
+            </bpmndi:BPMNEdge>
+
+            <bpmndi:BPMNEdge bpmnElement="flowSecondReject" id="Edge_flowSecondReject">
+                <omgdi:waypoint x="730.0" y="218.0"/>
+                <omgdi:waypoint x="730.0" y="330.0"/>
+                <bpmndi:BPMNLabel><omgdc:Bounds height="18.0" width="40.0" x="735.0" y="265.0"/></bpmndi:BPMNLabel>
+            </bpmndi:BPMNEdge>
+
+        </bpmndi:BPMNPlane>
+    </bpmndi:BPMNDiagram>
+</definitions>

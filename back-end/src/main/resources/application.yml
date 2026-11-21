@@ -1,0 +1,82 @@
+server:
+  port: 9090
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/asset_management?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
+    # 凭据由环境变量注入，不写入仓库（变量清单见 back-end/.env.example）
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+    table: flyway_schema_history
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      # password:
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.example.asset.modules.*.entity
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# JWT 配置
+jwt:
+  # 签名密钥由环境变量注入，长度必须 >= 32 字节（HS256 要求），未配置时启动即失败
+  secret: ${JWT_SECRET:}
+  expiration: 86400000  # 24小时
+
+# Knife4j
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+# LLM 配置（DeepSeek）
+llm:
+  deepseek:
+    api-key: ${DEEPSEEK_API_KEY:}
+    base-url: https://api.deepseek.com
+    model: deepseek-chat
+
+# Flowable 工作流引擎
+flowable:
+  # 自动创建/升级 ACT_* 引擎表（首次启动会自动建表，生产环境建议改为 false 并手动执行 DDL）
+  database-schema-update: true
+  # 关闭异步执行器：本流程为人工审批，无定时/异步任务，关闭可避免额外线程与轮询
+  async-executor-activate: false
+  # 自动部署 resources/processes/**/*.bpmn20.xml 下的流程定义（默认即为该目录，此处显式声明便于理解）
+  process-definition-location-prefix: classpath*:/processes/
+  check-process-definitions: true
+
+# 审批工作流业务配置
+approval:
+  workflow:
+    # BPMN 流程定义 Key，须与 asset-apply-approval.bpmn20.xml 的 process id 一致
+    process-key: assetApplyApproval
+    # 已接入 Flowable 的申请类型：BORROW=领用，RETURN=归还
+    # 让「归还」也走工作流，只需在此追加 RETURN，无需改动任何 Java 代码与 BPMN 文件
+    enabled-apply-types: BORROW,RETURN,SCRAP
