@@ -100,7 +100,16 @@ export JWT_SECRET="a-random-string-at-least-32-bytes-long"
 
 生成密钥：`openssl rand -base64 48`
 
-> 在 IDEA 中运行，可在 *Run/Debug Configurations → Environment variables* 里配置。
+也可以直接把变量写进 `back-end/.env`（该文件已被 `.gitignore` 忽略），应用启动时会自动读取：
+
+```ini
+DB_PASSWORD=your_password
+JWT_SECRET=a-random-string-at-least-32-bytes-long
+```
+
+> `.env` 由 `spring.config.import` 按 `.properties` 格式解析，所以**不要写 `export`、不要给值加引号**。
+> 优先级：系统环境变量 > `.env` > `application.yml` 默认值。
+> 在 IDEA 中运行也可改用 *Run/Debug Configurations → Environment variables*。
 
 ### 3. 启动后端
 

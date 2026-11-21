@@ -2,6 +2,13 @@ server:
   port: 9090
 
 spring:
+  config:
+    # 读取项目根目录（即 back-end/）下的 .env 文件。
+    # Spring Boot 原生不支持 .env（那是 dotenv 约定），这里用 [.properties] 显式指定
+    # 按 Java Properties 格式解析 —— .env 的 "KEY=VALUE + # 注释" 恰好是合法 properties。
+    # optional: 表示文件不存在时静默跳过，因此 CI / 生产环境改用真实环境变量时无需改动。
+    # 优先级：环境变量 > .env > application.yml 中的默认值。
+    import: optional:file:./.env[.properties]
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/asset_management?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
