@@ -288,16 +288,19 @@ public class ScrapServiceImpl implements ScrapService {
      * <p>与领用不同，报废不需要按申请类型分支，只有这一种收尾动作。</p>
      */
     private void scrapAsset(ScrapOrder order) {
-        Asset asset = assetMapper.selectById(order.getAssetId());
-        if (asset == null) {
-            return;
+        int rows = assetMapper.update(null, new LambdaUpdateWrapper<Asset>()
+                .eq(Asset::getId, order.getAssetId())
+                .ne(Asset::getStatus, "已报废")
+                .set(Asset::getStatus, "已报废")
+                .set(Asset::getUserId, null)
+                .set(Asset::getUserName, null));
+        if (rows == 0) {
+            Asset latest = assetMapper.selectById(order.getAssetId());
+            if (latest == null) {
+                throw new BusinessException("资产不存在，无法完成报废审批");
+            }
+            log.warn("报废终审：资产[{}]已是已报废状态，跳过重复更新", latest.getAssetCode());
         }
-        LambdaUpdateWrapper<Asset> assetUpdate = new LambdaUpdateWrapper<>();
-        assetUpdate.eq(Asset::getId, asset.getId())
-                   .set(Asset::getStatus, "已报废")
-                   .set(Asset::getUserId, null)
-                   .set(Asset::getUserName, null);
-        assetMapper.update(null, assetUpdate);
     }
 
     /** 报废单 → 流程上下文（本包不反向依赖 approval，故在此拼装） */

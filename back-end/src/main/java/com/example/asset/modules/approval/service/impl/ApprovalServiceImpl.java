@@ -282,24 +282,44 @@ public class ApprovalServiceImpl implements ApprovalService {
      * <p>按申请类型分支，因此「归还」后续接入 Flowable 时无需修改本方法。</p>
      */
     private void updateAssetOnFinalApproval(ApplyOrder order) {
-        Asset asset = assetMapper.selectById(order.getAssetId());
-        if (asset == null) {
-            return;
-        }
         LambdaUpdateWrapper<Asset> assetUpdate = new LambdaUpdateWrapper<>();
-        assetUpdate.eq(Asset::getId, asset.getId());
+        assetUpdate.eq(Asset::getId, order.getAssetId());
+        final String expectedStatus;
         if ("BORROW".equals(order.getApplyType())) {
-            assetUpdate.set(Asset::getStatus, "在用")
+            expectedStatus = "闲置";
+            assetUpdate.eq(Asset::getStatus, expectedStatus)
+                       .set(Asset::getStatus, "在用")
                        .set(Asset::getUserId, order.getApplyUserId())
                        .set(Asset::getUserName, order.getApplyUserName());
         } else if ("RETURN".equals(order.getApplyType())) {
+            expectedStatus = "在用";
+            assetUpdate.eq(Asset::getStatus, expectedStatus);
+            if(order.getApplyUserId() != null) {
+                assetUpdate.eq(Asset::getUserId, order.getApplyUserId());
+            } else {
+                log.warn("归还终审：申请单 {} 缺少 applyUserId，仅按状态校验资产", order.getApplyNo());
+            }
             assetUpdate.set(Asset::getStatus, "闲置")
                        .set(Asset::getUserId, null)
                        .set(Asset::getUserName, null);
         } else {
             return;
         }
-        assetMapper.update(null, assetUpdate);
+        int row = assetMapper.update(null, assetUpdate);
+        if (row == 0) {
+            Asset latest = assetMapper.selectById(order.getAssetId());
+            if(latest == null) {
+                throw new BusinessException("资产不存在或已被删除，无法完成审批");
+            }
+            if(!expectedStatus.equals(latest.getStatus())) {
+                throw new BusinessException(String.format(
+                        "资产【%s】当前状态为【%s】，与本次审批预期【%s】不一致，请核实后重新审批",
+                        order.getAssetCode(), latest.getStatus(), expectedStatus));
+            }
+            throw new BusinessException(String.format(
+                    "资产【%s】当前使用人为【%s】，与申请人【%s】不一致，无法完成归还审批",
+                    order.getAssetCode(), latest.getUserName(), order.getApplyUserName()));
+        }
     }
 
     /* ====================================================================================

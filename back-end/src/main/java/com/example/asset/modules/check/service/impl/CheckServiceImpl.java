@@ -3,6 +3,7 @@ package com.example.asset.modules.check.service.impl;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.asset.common.exception.BusinessException;
@@ -292,21 +293,21 @@ public class CheckServiceImpl implements CheckService {
 
             // 根据盘点结果更新资产状态（跳过特殊状态的资产，避免覆盖工作流驱动的状态）
             if ("SHORTAGE".equals(record.getResult())) {
-                if ("维修中".equals(asset.getStatus()) || "已报废".equals(asset.getStatus())) {
-                    log.warn("盘点差异确认跳过: 资产[{}]当前状态为[{}], 不覆盖为闲置", asset.getAssetCode(), asset.getStatus());
-                    continue;
+                int rows = assetMapper.update(null, new LambdaUpdateWrapper<Asset>()
+                                .eq(Asset::getId, asset.getId())
+                                .notIn(Asset::getStatus, "维修中", "已报废")
+                                .set(Asset::getStatus, "闲置"));
+                if (rows == 0) {
+                    log.warn("盘点差异确认跳过: 资产[{}]状态不允许自动变更", asset.getAssetCode());
                 }
-                // 盘亏：标记为闲置待核实
-                asset.setStatus("闲置");
-                assetMapper.updateById(asset);
             } else if ("SURPLUS".equals(record.getResult())) {
-                if ("已报废".equals(asset.getStatus())) {
-                    log.warn("盘点差异确认跳过: 资产[{}]当前状态为已报废, 不覆盖为在用", asset.getAssetCode());
-                    continue;
+                int rows = assetMapper.update(null, new LambdaUpdateWrapper<Asset>()
+                        .eq(Asset::getId, asset.getId())
+                        .ne(Asset::getStatus, "已报废")
+                        .set(Asset::getStatus, "在用"));
+                if (rows == 0) {
+                    log.warn("盘点差异确认跳过: 资产[{}]状态不允许自动变更", asset.getAssetCode());
                 }
-                // 盘盈：确认在用
-                asset.setStatus("在用");
-                assetMapper.updateById(asset);
             }
         }
 
