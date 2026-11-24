@@ -13,6 +13,7 @@ import com.example.asset.modules.approval.mapper.ApprovalRecordMapper;
 import com.example.asset.modules.approval.service.ApprovalService;
 import com.example.asset.modules.asset.entity.Asset;
 import com.example.asset.modules.asset.mapper.AssetMapper;
+import com.example.asset.modules.asset.service.AssetPendingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.flowable.task.api.Task;
@@ -46,6 +47,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     private final ApprovalRecordMapper approvalRecordMapper;
     private final AssetMapper assetMapper;
     private final ApplyWorkflowService applyWorkflowService;
+    private final AssetPendingService assetPendingService;
 
     @Override
     @Transactional
@@ -70,6 +72,13 @@ public class ApprovalServiceImpl implements ApprovalService {
 
         order.setStatus("PENDING_FIRST");
         applyOrderMapper.insert(order);
+
+        // 占位：抢占该资产，防止同一资产被重复申请。
+        // 必须在 insert 之后（需要自增主键），且在启动流程之前。
+        // 占用失败时抛异常，由 @Transactional 回滚上面这条 insert，不会留下孤儿单据。
+        if (!assetPendingService.claim(order.getAssetId(), order.getId())) {
+            throw new BusinessException("该资产已有进行中的申请，请等待处理完成后再试");
+        }
 
         // ===================== Flowable 分支 =====================
         // 仅对已接入工作流的申请类型发起流程实例（当前为 BORROW，见 application.yml）
@@ -192,7 +201,15 @@ public class ApprovalServiceImpl implements ApprovalService {
             throw new BusinessException("审批失败：订单状态已被他人修改，请刷新页面后重试");
         }
 
-        // 11. 复审通过且流程正常结束 → 更新资产状态
+        // 11. 流程已结束（无论通过还是驳回）→ 释放资产占位。
+        //     必须在 CAS 成功之后：CAS 失败会抛异常回滚，占位应保留给重新审批。
+        //     注意这里用 nextTask == null 判断，而不是枚举终态 ——
+        //     流程实例结束即代表单据不会再流转，语义上等价且不会漏掉新增的终结节点。
+        if (nextTask == null) {
+            assetPendingService.release(order.getAssetId(), order.getId());
+        }
+
+        // 12. 复审通过且流程正常结束 → 更新资产状态
         if (approved && nextTask == null && ApplyWorkflowService.LEVEL_SECOND.equals(currentLevel)) {
             updateAssetOnFinalApproval(order);
         }
@@ -271,10 +288,25 @@ public class ApprovalServiceImpl implements ApprovalService {
             throw new BusinessException("审批失败：订单状态已被他人修改，请刷新页面后重试");
         }
 
+        // 终态 → 释放资产占位（CAS 成功之后，避免影响失败重试）
+        if (isTerminalStatus(newStatus)) {
+            assetPendingService.release(order.getAssetId(), order.getId());
+        }
+
         // 复审通过时更新资产状态（也使用原子条件更新）
         if ("SECOND".equals(level) && "PASS".equals(result)) {
             updateAssetOnFinalApproval(order);
         }
+    }
+
+    /**
+     * 是否为终态：单据不再流转，资产占位应当释放。
+     * <p>仅用于硬编码状态机分支；Flowable 分支以「流程实例是否结束」判断，无需枚举状态。</p>
+     */
+    private static boolean isTerminalStatus(String status) {
+        return "COMPLETED".equals(status)
+                || "FIRST_REJECT".equals(status)
+                || "SECOND_REJECT".equals(status);
     }
 
     /**

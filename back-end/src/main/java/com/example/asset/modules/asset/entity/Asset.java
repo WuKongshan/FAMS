@@ -55,4 +55,11 @@ public class Asset extends BaseEntity {
 
     /** 状态：在用/闲置/维修中/已报废 */
     private String status;
+
+    /**
+     * 进行中的申请单ID（领用/归还/报废共用）。
+     * <p>非空 = 该资产已有在途申请，拒绝新的申请；NULL = 可申请。</p>
+     * <p>仅用于并发防重，不参与前端状态契约，{@link #status} 的语义不受影响。</p>
+     */
+    private Long pendingOrderId;
 }
