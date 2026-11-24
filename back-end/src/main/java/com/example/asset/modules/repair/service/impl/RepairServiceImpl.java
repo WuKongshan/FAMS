@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.asset.common.exception.BusinessException;
+import com.example.asset.common.utils.BizNoGenerator;
 import com.example.asset.modules.asset.entity.Asset;
 import com.example.asset.modules.asset.mapper.AssetMapper;
 import com.example.asset.modules.repair.entity.RepairOrder;
@@ -42,6 +43,10 @@ public class RepairServiceImpl implements RepairService {
 
         order.setStatus("PENDING_FIRST");
         repairOrderMapper.insert(order);
+
+        // 生成工单编号（依赖自增主键，先 insert 再回写）
+        order.setOrderNo(BizNoGenerator.repairNo(order.getId()));
+        repairOrderMapper.updateById(order);
     }
 
     @Override

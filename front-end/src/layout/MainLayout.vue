@@ -1,18 +1,18 @@
 <template>
   <el-container class="layout-container">
     <!-- 侧边栏 -->
-    <el-aside :width="isCollapse ? '64px' : '220px'" class="aside">
+    <el-aside :width="isCollapse ? '64px' : '232px'" class="aside">
       <div class="logo">
-        <span v-if="!isCollapse">固定资产管理系统</span>
-        <span v-else>资产</span>
+        <span class="logo-mark">F</span>
+        <span v-if="!isCollapse" class="logo-text">固定资产管理系统</span>
       </div>
       <el-menu
         :default-active="activeMenu"
         :collapse="isCollapse"
         router
-        background-color="#304156"
-        text-color="#bfcbd9"
-        active-text-color="#409EFF"
+        background-color="#f6f8fa"
+        text-color="#1f2328"
+        active-text-color="#0969da"
       >
         <el-menu-item index="/asset/list">
           <el-icon><List /></el-icon>
@@ -41,10 +41,6 @@
           <el-icon><Delete /></el-icon>
           <span>报废管理</span>
         </el-menu-item>
-        <el-menu-item index="/statistics">
-          <el-icon><TrendCharts /></el-icon>
-          <span>数据统计</span>
-        </el-menu-item>
         <el-menu-item v-if="userStore.isAdmin" index="/admin/users">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
@@ -52,6 +48,10 @@
         <el-menu-item v-if="userStore.isAdmin" index="/admin/audit">
           <el-icon><DocumentChecked /></el-icon>
           <span>操作审计</span>
+        </el-menu-item>
+        <el-menu-item index="/statistics">
+          <el-icon><TrendCharts /></el-icon>
+          <span>数据统计</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
@@ -106,46 +106,80 @@ const currentTitle = computed(() => route.meta.title as string)
 .layout-container {
   height: 100vh;
 }
+
+/* ---- 侧边栏：浅色 + 细边框（GitHub 风格） ---- */
 .aside {
-  background-color: #304156;
+  background-color: #f6f8fa;
+  border-right: 1px solid #d0d7de;
   overflow-y: auto;
   overflow-x: hidden;
-  transition: width 0.3s;
+  transition: width 0.2s ease;
 }
+
 .logo {
-  height: 60px;
-  line-height: 60px;
-  text-align: center;
-  color: #fff;
-  font-size: 18px;
-  font-weight: bold;
-  background: rgba(0, 0, 0, 0.2);
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid #d0d7de;
   overflow: hidden;
   white-space: nowrap;
 }
+
+.logo-mark {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #1f2328;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2328;
+  letter-spacing: 0.2px;
+}
+
+/* ---- 顶栏 ---- */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #fff;
-  border-bottom: 1px solid #e6e6e6;
+  height: 56px;
+  background: #ffffff;
+  border-bottom: 1px solid #d0d7de;
   padding: 0 20px;
 }
+
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
+
 .header-right {
   display: flex;
   align-items: center;
+  gap: 4px;
 }
+
 .user-info {
-  font-size: 14px;
-  color: #606266;
+  font-size: 13px;
+  color: #656d76;
 }
+
+/* ---- 主内容区 ---- */
 .main-content {
-  background: #f0f2f5;
+  background: #f6f8fa;
   padding: 0;
+  overflow: hidden;
 }
 </style>

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.asset.common.exception.BusinessException;
+import com.example.asset.common.utils.BizNoGenerator;
 import com.example.asset.modules.approval.entity.ApprovalRecord;
 import com.example.asset.modules.approval.flow.ApplyWorkflowService;
 import com.example.asset.modules.approval.flow.WorkflowBizContext;
@@ -78,6 +79,10 @@ public class ScrapServiceImpl implements ScrapService {
 
         order.setStatus("PENDING_FIRST");
         scrapOrderMapper.insert(order);
+
+        // 生成报废单号。必须在 start() 之前：流程变量 applyNo 会取这个值。
+        order.setScrapNo(BizNoGenerator.scrapNo(order.getId()));
+        scrapOrderMapper.updateById(order);
 
         // 占位：与领用/归还共用 asset_info.pending_order_id，实现跨单据类型的互斥。
         // 必须在 insert 之后（需要自增主键），占用失败时由事务回滚这条 insert。

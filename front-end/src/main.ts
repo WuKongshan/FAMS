@@ -7,6 +7,8 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
+// 顺序重要：主题变量必须在 Element Plus 默认样式之后引入才能覆盖
+import './styles/theme.scss'
 import './styles/global.scss'
 
 const app = createApp(App)

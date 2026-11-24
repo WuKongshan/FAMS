@@ -1,3 +1,8 @@
+// ============================================================
+// 布局与通用工具类
+// 设计变量与 Element Plus 覆盖见 theme.scss
+// ============================================================
+
 * {
   margin: 0;
   padding: 0;
@@ -5,54 +10,106 @@
 }
 
 body {
-  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--gh-font);
+  color: var(--gh-fg);
+  background: var(--gh-canvas-subtle);
   -webkit-font-smoothing: antialiased;
 }
 
+/* ---- 页面容器 ---- */
 .page-container {
-  padding: 20px;
+  padding: 24px;
   height: 100%;
   overflow-y: auto;
 }
 
+/* 直接挂在页面下的表格 -> 当作一个白色面板 */
+.page-container > .el-table {
+  background: var(--gh-canvas);
+  border: 1px solid var(--gh-border);
+  border-radius: var(--gh-radius);
+}
+
+/* ---- 搜索区：白色面板 + 细边框，替代原来的灰块 ---- */
 .search-bar {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 16px;
   padding: 16px;
-  background: #f5f7fa;
-  border-radius: 8px;
+  background: var(--gh-canvas);
+  border: 1px solid var(--gh-border);
+  border-radius: var(--gh-radius);
+  box-shadow: var(--gh-shadow-sm);
 }
 
+/* ---- 操作栏 ---- */
 .table-actions {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
+/* ---- 统计卡片行 ---- */
 .stat-card-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
+.stat-card-row .el-card__body {
+  padding: 16px;
+}
+
+.stat-card-row .el-statistic__head {
+  color: var(--gh-fg-muted);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.stat-card-row .el-statistic__number {
+  font-weight: 600;
+  color: var(--gh-fg);
+}
+
+/* ---- 图表卡片 ---- */
 .chart-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
   gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* 单独占满一整行的图表（例如学院维度柱状图，横轴标签较长） */
+.chart-row--full {
+  grid-template-columns: 1fr;
 }
 
 .chart-card {
-  background: #fff;
-  border-radius: 8px;
+  background: var(--gh-canvas);
+  border: 1px solid var(--gh-border);
+  border-radius: var(--gh-radius);
   padding: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--gh-shadow-sm);
 }
 
 .chart-card h3 {
   margin-bottom: 16px;
-  font-size: 16px;
-  color: #303133;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gh-fg);
+}
+
+/* ---- 少量排版工具类 ---- */
+.text-muted {
+  color: var(--gh-fg-muted);
+}
+
+.text-mono {
+  font-family: var(--gh-font-mono);
+  font-size: 13px;
 }

@@ -5,6 +5,7 @@ import cn.hutool.poi.excel.ExcelWriter;
 import com.example.asset.common.annotation.OperationLog;
 import com.example.asset.common.result.R;
 import com.example.asset.modules.asset.entity.Asset;
+import com.example.asset.modules.asset.mapper.AssetCategoryMapper;
 import com.example.asset.modules.asset.service.AssetService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +24,13 @@ import java.util.List;
 public class AssetController {
 
     private final AssetService assetService;
+    private final AssetCategoryMapper assetCategoryMapper;
+
+    @Operation(summary = "获取资产分类列表（供下拉选择）")
+    @GetMapping("/categories")
+    public R<?> categories() {
+        return R.ok(assetCategoryMapper.selectList(null));
+    }
 
     @Operation(summary = "分页查询资产")
     @GetMapping("/page")

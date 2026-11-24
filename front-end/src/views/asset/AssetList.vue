@@ -31,10 +31,7 @@
     <div class="search-bar">
       <el-input v-model="search.keyword" placeholder="资产编号/名称/使用人" clearable style="width: 220px" />
       <el-select v-model="search.categoryId" placeholder="资产分类" clearable style="width: 160px">
-        <el-option label="计算机设备" :value="5" />
-        <el-option label="打印设备" :value="6" />
-        <el-option label="办公桌椅" :value="7" />
-        <el-option label="实验仪器" :value="8" />
+        <el-option v-for="c in categoryOptions" :key="c.id" :label="c.categoryName" :value="c.id" />
       </el-select>
       <el-select v-model="search.status" placeholder="资产状态" clearable style="width: 140px">
         <el-option label="在用" value="在用" />
@@ -117,11 +114,8 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="分类" prop="categoryId">
-              <el-select v-model="form.categoryId" style="width: 100%" @change="onCategoryChange">
-                <el-option label="计算机设备" :value="5" />
-                <el-option label="打印设备" :value="6" />
-                <el-option label="办公桌椅" :value="7" />
-                <el-option label="实验仪器" :value="8" />
+              <el-select v-model="form.categoryId" style="width: 100%" placeholder="请选择分类" @change="onCategoryChange">
+                <el-option v-for="c in categoryOptions" :key="c.id" :label="c.categoryName" :value="c.id" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -147,11 +141,8 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="归属部门" prop="deptId">
-              <el-select v-model="form.deptId" style="width: 100%" @change="onDeptChange">
-                <el-option label="计算机学院" :value="1" />
-                <el-option label="电子信息学院" :value="2" />
-                <el-option label="机械学院" :value="3" />
-                <el-option label="经管学院" :value="4" />
+              <el-select v-model="form.deptId" style="width: 100%" placeholder="请选择部门" @change="onDeptChange">
+                <el-option v-for="d in deptOptions" :key="d.id" :label="d.deptName" :value="d.id" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -177,7 +168,8 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getAssetPage, addAsset, updateAsset, deleteAsset, exportAssets, type AssetQuery } from '@/api/asset'
+import { getAssetPage, addAsset, updateAsset, deleteAsset, exportAssets, getCategories, type AssetQuery } from '@/api/asset'
+import { getDepartments } from '@/api/admin'
 
 const loading = ref(false)
 const tableData = ref<any[]>([])
@@ -270,15 +262,41 @@ function resetForm() {
   })
 }
 
-const categoryMap: Record<number, string> = { 5: '计算机设备', 6: '打印设备', 7: '办公桌椅', 8: '实验仪器' }
-const deptMap: Record<number, string> = { 1: '计算机学院', 2: '电子信息学院', 3: '机械学院', 4: '经管学院' }
+// 分类下拉：从后端加载，避免硬编码在分类增删后失效
+const categoryOptions = ref<any[]>([])
+
+async function loadCategories() {
+  try {
+    const res = await getCategories()
+    const list: any[] = res.data || []
+    // 分类是两级结构（设备类 → 计算机设备/打印设备…）。
+    // 资产只挂在叶子节点上，所以下拉里过滤掉"有子节点"的父分类，
+    // 否则用户可能选到「设备类」这种父级，导致 categoryName 与既有数据不一致。
+    const parentIds = new Set(
+      list.map((c: any) => c.parentId).filter((p: any) => p && p !== 0)
+    )
+    categoryOptions.value = list.filter((c: any) => !parentIds.has(c.id))
+  } catch { /* 加载失败不阻塞页面 */ }
+}
+
+// 部门下拉：从后端加载，避免硬编码遗漏「资产管理处」等校级部门
+const deptOptions = ref<any[]>([])
+
+async function loadDepartments() {
+  try {
+    const res = await getDepartments()
+    deptOptions.value = res.data || []
+  } catch { /* 加载失败不阻塞页面 */ }
+}
 
 function onCategoryChange(val: number) {
-  form.categoryName = categoryMap[val] || ''
+  const hit = categoryOptions.value.find((c: any) => c.id === val)
+  form.categoryName = hit ? hit.categoryName : ''
 }
 
 function onDeptChange(val: number) {
-  form.deptName = deptMap[val] || ''
+  const hit = deptOptions.value.find((d: any) => d.id === val)
+  form.deptName = hit ? hit.deptName : ''
 }
 
 async function handleSubmit() {
@@ -319,5 +337,7 @@ async function handleExport() {
 onMounted(() => {
   fetchData()
   fetchStats()
+  loadDepartments()
+  loadCategories()
 })
 </script>

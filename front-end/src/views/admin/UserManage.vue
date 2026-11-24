@@ -25,10 +25,7 @@
     <div class="search-bar">
       <el-input v-model="search.keyword" placeholder="用户名/姓名/手机号" clearable style="width: 220px" />
       <el-select v-model="search.deptId" placeholder="部门" clearable style="width: 180px">
-        <el-option label="计算机学院" :value="1" />
-        <el-option label="电子信息学院" :value="2" />
-        <el-option label="机械学院" :value="3" />
-        <el-option label="经管学院" :value="4" />
+        <el-option v-for="d in deptOptions" :key="d.id" :label="d.deptName" :value="d.id" />
       </el-select>
       <el-button type="primary" @click="fetchData">查询</el-button>
       <el-button type="success" @click="openDialog()" style="margin-left: auto">新增用户</el-button>
@@ -91,11 +88,8 @@
           <el-input v-model="form.email" />
         </el-form-item>
         <el-form-item label="部门">
-          <el-select v-model="form.deptId" style="width: 100%">
-            <el-option label="计算机学院" :value="1" />
-            <el-option label="电子信息学院" :value="2" />
-            <el-option label="机械学院" :value="3" />
-            <el-option label="经管学院" :value="4" />
+          <el-select v-model="form.deptId" style="width: 100%" placeholder="请选择部门">
+            <el-option v-for="d in deptOptions" :key="d.id" :label="d.deptName" :value="d.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="角色">
@@ -120,7 +114,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getUserPage, addUser, updateUser, deleteUser, resetPassword } from '@/api/admin'
+import { getUserPage, addUser, updateUser, deleteUser, resetPassword, getDepartments } from '@/api/admin'
 
 const loading = ref(false)
 const tableData = ref<any[]>([])
@@ -128,6 +122,18 @@ const total = ref(0)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增用户')
 const formRef = ref()
+
+// 部门下拉：从后端加载，避免硬编码导致「超出范围的 deptId 只显示数字」
+const deptOptions = ref<any[]>([])
+
+async function loadDepartments() {
+  try {
+    const res = await getDepartments()
+    deptOptions.value = res.data || []
+  } catch {
+    /* 下拉列表加载失败不影响主流程，但控制台会看到错误 */
+  }
+}
 
 const stats = reactive({ total: 0, adminCount: 0, deptAdminCount: 0, userCount: 0 })
 
@@ -206,5 +212,6 @@ async function handleResetPwd(id: number) {
 onMounted(() => {
   fetchData()
   fetchStats()
+  loadDepartments()
 })
 </script>

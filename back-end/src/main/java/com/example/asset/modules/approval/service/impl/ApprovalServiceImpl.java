@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.asset.common.exception.BusinessException;
+import com.example.asset.common.utils.BizNoGenerator;
 import com.example.asset.modules.approval.entity.ApplyOrder;
 import com.example.asset.modules.approval.entity.ApprovalRecord;
 import com.example.asset.modules.approval.flow.ApplyWorkflowService;
@@ -72,6 +73,11 @@ public class ApprovalServiceImpl implements ApprovalService {
 
         order.setStatus("PENDING_FIRST");
         applyOrderMapper.insert(order);
+
+        // 生成申请编号。必须在 start() 之前：流程变量 applyNo 会取这个值。
+        // 单号依赖自增主键，因此要先 insert 再回写。
+        order.setApplyNo(BizNoGenerator.applyNo(order.getApplyType(), order.getId()));
+        applyOrderMapper.updateById(order);
 
         // 占位：抢占该资产，防止同一资产被重复申请。
         // 必须在 insert 之后（需要自增主键），且在启动流程之前。

@@ -13,6 +13,11 @@ export function getAssetPage(params: AssetQuery) {
   return request.get('/asset/page', { params })
 }
 
+/** 获取资产分类列表（供下拉选择） */
+export function getCategories() {
+  return request.get('/asset/categories')
+}
+
 export function addAsset(data: any) {
   return request.post('/asset', data)
 }
