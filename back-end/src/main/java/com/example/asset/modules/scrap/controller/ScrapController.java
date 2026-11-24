@@ -27,6 +27,8 @@ public class ScrapController {
     public R<?> apply(@RequestBody ScrapOrder order) {
         // 从 SecurityContext 获取当前用户信息，自动填充部门字段，防止跨院系伪造
         Map<String, Object> userDetails = getUserDetails();
+        order.setApplyUserId((Long) userDetails.get("userId"));
+        order.setApplyUserName((String) userDetails.get("realName"));
         order.setDeptId(toLong(userDetails.get("deptId")));
         order.setDeptName((String) userDetails.get("deptName"));
         scrapService.submitScrap(order);
