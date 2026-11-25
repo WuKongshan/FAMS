@@ -358,18 +358,21 @@ public class ScrapServiceImpl implements ScrapService {
 
     @Override
     public IPage<ScrapOrder> pageOrders(int current, int size, String status, Long deptId,
-                                         Long currentUserDeptId, Integer currentUserRoleId) {
+                                         Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId) {
         LambdaQueryWrapper<ScrapOrder> wrapper = new LambdaQueryWrapper<>();
         if (status != null) {
             wrapper.eq(ScrapOrder::getStatus, status);
         }
 
-        // 院系隔离：学院管理员只能查看本学院的报废单，超级管理员可查看全部
-        if (currentUserRoleId != null && currentUserRoleId == 2) {
-            // 学院管理员：强制按自己的院系过滤，忽略前端传入的 deptId
+        // 数据范围（以登录态为准，不采纳前端参数）：
+        //   1 超级管理员 → 全部，可选按院系筛选
+        //   2 学院管理员 → 强制本院系
+        //   3 普通师生   → 强制仅本人
+        if (currentUserRoleId != null && currentUserRoleId == 3) {
+            wrapper.eq(ScrapOrder::getApplyUserId, currentUserId);
+        } else if (currentUserRoleId != null && currentUserRoleId == 2) {
             wrapper.eq(ScrapOrder::getDeptId, currentUserDeptId);
         } else if (currentUserRoleId != null && currentUserRoleId == 1 && deptId != null) {
-            // 超级管理员：可选按院系过滤
             wrapper.eq(ScrapOrder::getDeptId, deptId);
         }
 
@@ -378,14 +381,20 @@ public class ScrapServiceImpl implements ScrapService {
     }
 
     @Override
-    public Map<String, Object> getScrapDetail(Long id, Long currentUserDeptId, Integer currentUserRoleId) {
+    public Map<String, Object> getScrapDetail(Long id, Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId) {
         ScrapOrder order = scrapOrderMapper.selectById(id);
         if (order == null) {
             throw new BusinessException("报废申请单不存在");
         }
 
-        // 院系隔离：学院管理员只能查看本学院的报废单详情
-        if (currentUserRoleId != null && currentUserRoleId == 2) {
+        // 数据范围校验（与列表口径保持一致）
+        if (currentUserRoleId != null && currentUserRoleId == 3) {
+            // 普通师生：只能看自己的单
+            if (!java.util.Objects.equals(order.getApplyUserId(), currentUserId)) {
+                throw new BusinessException("无权查看他人的报废申请单");
+            }
+        } else if (currentUserRoleId != null && currentUserRoleId == 2) {
+            // 学院管理员：只能看本学院的单
             if (order.getDeptId() == null || !order.getDeptId().equals(currentUserDeptId)) {
                 throw new BusinessException("权限不足：学院管理员仅可查看本学院的报废单");
             }

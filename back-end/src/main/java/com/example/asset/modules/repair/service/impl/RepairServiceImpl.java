@@ -151,14 +151,20 @@ public class RepairServiceImpl implements RepairService {
     }
 
     @Override
-    public RepairOrder getOrderDetail(Long id, Long currentUserDeptId, Integer currentUserRoleId) {
+    public RepairOrder getOrderDetail(Long id, Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId) {
         RepairOrder order = repairOrderMapper.selectById(id);
         if (order == null) {
             throw new BusinessException("工单不存在");
         }
 
-        // 院系隔离：学院管理员只能查看本学院的报修工单详情
-        if (currentUserRoleId != null && currentUserRoleId == 2) {
+        // 数据范围校验（与列表口径保持一致）
+        if (currentUserRoleId != null && currentUserRoleId == 3) {
+            // 普通师生：只能看自己报修的单
+            if (!java.util.Objects.equals(order.getReporterId(), currentUserId)) {
+                throw new BusinessException("无权查看他人的报修工单");
+            }
+        } else if (currentUserRoleId != null && currentUserRoleId == 2) {
+            // 学院管理员：只能看本学院的单
             if (order.getDeptId() == null || !order.getDeptId().equals(currentUserDeptId)) {
                 throw new BusinessException("权限不足：学院管理员仅可查看本学院的报修工单");
             }
@@ -168,18 +174,21 @@ public class RepairServiceImpl implements RepairService {
 
     @Override
     public IPage<RepairOrder> pageOrders(int current, int size, String status, Long deptId,
-                                         Long currentUserDeptId, Integer currentUserRoleId) {
+                                         Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId) {
         LambdaQueryWrapper<RepairOrder> wrapper = new LambdaQueryWrapper<>();
         if (StrUtil.isNotBlank(status)) {
             wrapper.eq(RepairOrder::getStatus, status);
         }
 
-        // 院系隔离：学院管理员只能查看本学院的报修单，超级管理员可查看全部
-        if (currentUserRoleId != null && currentUserRoleId == 2) {
-            // 学院管理员：强制按自己的院系过滤，忽略前端传入的 deptId
+        // 数据范围（以登录态为准，不采纳前端参数）：
+        //   1 超级管理员 → 全部，可选按院系筛选
+        //   2 学院管理员 → 强制本院系
+        //   3 普通师生   → 强制仅本人（按报修人 reporter_id）
+        if (currentUserRoleId != null && currentUserRoleId == 3) {
+            wrapper.eq(RepairOrder::getReporterId, currentUserId);
+        } else if (currentUserRoleId != null && currentUserRoleId == 2) {
             wrapper.eq(RepairOrder::getDeptId, currentUserDeptId);
         } else if (currentUserRoleId != null && currentUserRoleId == 1 && deptId != null) {
-            // 超级管理员：可选按院系过滤
             wrapper.eq(RepairOrder::getDeptId, deptId);
         }
 

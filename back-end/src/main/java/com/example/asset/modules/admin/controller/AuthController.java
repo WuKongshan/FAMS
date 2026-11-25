@@ -45,10 +45,24 @@ public class AuthController {
         return R.ok(departmentMapper.selectList(null));
     }
 
-    @Operation(summary = "获取用户列表（仅学院管理员，用于下拉选择）")
+    @Operation(summary = "获取用户列表（用于下拉选择，仅返回必要字段）")
     @GetMapping("/users")
     public R<?> users() {
-        return R.ok(userMapper.selectList(
-                new LambdaQueryWrapper<User>().eq(User::getRoleId, 2L)));
+        // 只返回下拉选择所需的最小字段。
+        // 原来直接返回 User 实体，会把手机号 / 邮箱等联系方式一并暴露；
+        // 该接口仅用于「选择维修人 / 盘点人」，调用方并不需要联系方式。
+        java.util.List<java.util.Map<String, Object>> list = userMapper.selectList(
+                        new LambdaQueryWrapper<User>().eq(User::getRoleId, 2L))
+                .stream()
+                .map(u -> {
+                    java.util.Map<String, Object> m = new java.util.HashMap<>();
+                    m.put("id", u.getId());
+                    m.put("realName", u.getRealName());
+                    m.put("deptId", u.getDeptId());
+                    m.put("deptName", u.getDeptName());
+                    return m;
+                })
+                .collect(java.util.stream.Collectors.toList());
+        return R.ok(list);
     }
 }

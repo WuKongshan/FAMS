@@ -11,9 +11,10 @@ public interface RepairService {
     /** 更新报修工单（接单/维修/完成），自动按角色进行院系隔离校验 */
     void updateOrder(RepairOrder order, Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId);
 
-    /** 查询工单详情（含院系隔离校验） */
-    RepairOrder getOrderDetail(Long id, Long currentUserDeptId, Integer currentUserRoleId);
+    /** 查询工单详情（按角色做数据范围校验：1=全部、2=本院系、3=仅本人） */
+    RepairOrder getOrderDetail(Long id, Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId);
 
-    /** 分页查询报修记录（自动根据角色进行院系隔离） */
-    IPage<RepairOrder> pageOrders(int current, int size, String status, Long deptId, Long currentUserDeptId, Integer currentUserRoleId);
+    /** 分页查询报修记录（数据范围按角色推导：1=全部、2=本院系、3=仅本人） */
+    IPage<RepairOrder> pageOrders(int current, int size, String status, Long deptId,
+                                  Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId);
 }

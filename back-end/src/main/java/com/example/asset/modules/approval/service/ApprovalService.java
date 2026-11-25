@@ -13,9 +13,15 @@ public interface ApprovalService {
     /** 审批（通过/驳回） */
     void approve(Long orderId, Long approveUserId, String approveUserName, Integer roleId, Long approveUserDeptId, String level, String result, String comment);
 
-    /** 分页查询申请单（自动根据角色进行院系隔离） */
-    IPage<ApplyOrder> pageOrders(int current, int size, String applyType, String status, Long deptId, Long applyUserId, Long currentUserDeptId, Integer currentUserRoleId);
+    /**
+     * 分页查询申请单。
+     *
+     * <p>数据范围由服务端按角色推导：1=全部（可按院系筛）、2=本院系、3=仅本人。
+     * {@code applyUserId} 仅对管理员生效，普通师生传入会被忽略。</p>
+     */
+    IPage<ApplyOrder> pageOrders(int current, int size, String applyType, String status, Long deptId,
+                                 Long applyUserId, Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId);
 
-    /** 查询申请单详情（含审批记录，自动根据角色进行院系隔离） */
-    Map<String, Object> getOrderDetail(Long id, Long currentUserDeptId, Integer currentUserRoleId);
+    /** 查询申请单详情（含审批记录，按角色做数据范围校验） */
+    Map<String, Object> getOrderDetail(Long id, Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId);
 }

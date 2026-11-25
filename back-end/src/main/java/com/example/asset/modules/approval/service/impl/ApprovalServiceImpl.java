@@ -366,7 +366,7 @@ public class ApprovalServiceImpl implements ApprovalService {
 
     @Override
     public IPage<ApplyOrder> pageOrders(int current, int size, String applyType, String status, Long deptId,
-                                         Long applyUserId, Long currentUserDeptId, Integer currentUserRoleId) {
+                                         Long applyUserId, Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId) {
         LambdaQueryWrapper<ApplyOrder> wrapper = new LambdaQueryWrapper<>();
         if (applyType != null) {
             wrapper.eq(ApplyOrder::getApplyType, applyType);
@@ -374,16 +374,21 @@ public class ApprovalServiceImpl implements ApprovalService {
         if (status != null) {
             wrapper.eq(ApplyOrder::getStatus, status);
         }
-        if (applyUserId != null) {
+        // 「按申请人筛选」只对管理员开放；普通师生传入的 applyUserId 一律忽略，
+        // 否则只要换个 id 就能查看他人的申请单（对象级越权）。
+        if (applyUserId != null && (currentUserRoleId == null || currentUserRoleId != 3)) {
             wrapper.eq(ApplyOrder::getApplyUserId, applyUserId);
         }
 
-        // 院系隔离：学院管理员只能查看本学院的申请单，超级管理员可查看全部
-        if (currentUserRoleId != null && currentUserRoleId == 2) {
-            // 学院管理员：强制按自己的院系过滤，忽略前端传入的 deptId
+        // 数据范围（以登录态为准，不采纳前端参数）：
+        //   1 超级管理员 → 全部，可选按院系筛选
+        //   2 学院管理员 → 强制本院系
+        //   3 普通师生   → 强制仅本人
+        if (currentUserRoleId != null && currentUserRoleId == 3) {
+            wrapper.eq(ApplyOrder::getApplyUserId, currentUserId);
+        } else if (currentUserRoleId != null && currentUserRoleId == 2) {
             wrapper.eq(ApplyOrder::getDeptId, currentUserDeptId);
         } else if (currentUserRoleId != null && currentUserRoleId == 1 && deptId != null) {
-            // 超级管理员：可选按院系过滤
             wrapper.eq(ApplyOrder::getDeptId, deptId);
         }
 
@@ -392,14 +397,20 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     @Override
-    public Map<String, Object> getOrderDetail(Long id, Long currentUserDeptId, Integer currentUserRoleId) {
+    public Map<String, Object> getOrderDetail(Long id, Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId) {
         ApplyOrder order = applyOrderMapper.selectById(id);
         if (order == null) {
             throw new BusinessException("申请单不存在");
         }
 
-        // 院系隔离：学院管理员只能查看本学院的申请单详情
-        if (currentUserRoleId != null && currentUserRoleId == 2) {
+        // 数据范围校验（与列表口径保持一致）
+        if (currentUserRoleId != null && currentUserRoleId == 3) {
+            // 普通师生：只能看自己的单
+            if (!java.util.Objects.equals(order.getApplyUserId(), currentUserId)) {
+                throw new BusinessException("无权查看他人的申请单");
+            }
+        } else if (currentUserRoleId != null && currentUserRoleId == 2) {
+            // 学院管理员：只能看本学院的单
             if (order.getDeptId() == null || !order.getDeptId().equals(currentUserDeptId)) {
                 throw new BusinessException("权限不足：学院管理员仅可查看本学院的申请单");
             }

@@ -30,6 +30,10 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                // /api/auth/users 必须登录才能访问：它会返回用户姓名/部门，
+                // 若随 /api/auth/** 一起放开，未登录者即可枚举人员信息。
+                // 注意规则顺序：更具体的路径必须放在通配路径之前。
+                .requestMatchers("/api/auth/users").authenticated()
                 // 公开接口
                 .requestMatchers("/api/auth/**", "/doc.html", "/swagger-ui/**", "/v3/api-docs/**", "/webjars/**").permitAll()
                 // 需要认证

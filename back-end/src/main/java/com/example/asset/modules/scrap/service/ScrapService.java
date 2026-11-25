@@ -11,8 +11,10 @@ public interface ScrapService {
 
     void approve(Long orderId, Long approveUserId, String approveUserName, Integer roleId, Long approveUserDeptId, String level, String result, String comment);
 
-    IPage<ScrapOrder> pageOrders(int current, int size, String status, Long deptId, Long currentUserDeptId, Integer currentUserRoleId);
+    /** 分页查询报废单（数据范围按角色推导：1=全部、2=本院系、3=仅本人） */
+    IPage<ScrapOrder> pageOrders(int current, int size, String status, Long deptId,
+                                 Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId);
 
-    /** 查询报废单详情（含审批记录，自动根据角色进行院系隔离） */
-    Map<String, Object> getScrapDetail(Long id, Long currentUserDeptId, Integer currentUserRoleId);
+    /** 查询报废单详情（含审批记录，按角色做数据范围校验） */
+    Map<String, Object> getScrapDetail(Long id, Long currentUserId, Long currentUserDeptId, Integer currentUserRoleId);
 }

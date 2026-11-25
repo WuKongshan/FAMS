@@ -58,11 +58,12 @@ public class ScrapController {
     @Operation(summary = "查询报废单详情")
     @GetMapping("/{id}")
     public R<?> detail(@PathVariable Long id) {
-        // 从 SecurityContext 获取当前用户信息，用于院系隔离校验
+        // 从 SecurityContext 获取当前用户信息，用于数据范围校验
         Map<String, Object> userDetails = getUserDetails();
+        Long currentUserId = toLong(userDetails.get("userId"));
         Long currentUserDeptId = toLong(userDetails.get("deptId"));
         Integer currentUserRoleId = (Integer) userDetails.get("roleId");
-        return R.ok(scrapService.getScrapDetail(id, currentUserDeptId, currentUserRoleId));
+        return R.ok(scrapService.getScrapDetail(id, currentUserId, currentUserDeptId, currentUserRoleId));
     }
 
     @Operation(summary = "分页查询报废单")
@@ -71,11 +72,13 @@ public class ScrapController {
                      @RequestParam(defaultValue = "10") int size,
                      @RequestParam(required = false) String status,
                      @RequestParam(required = false) Long deptId) {
-        // 从 SecurityContext 获取当前用户信息，用于院系隔离
+        // 从 SecurityContext 获取当前用户信息，用于数据范围隔离
         Map<String, Object> userDetails = getUserDetails();
+        Long currentUserId = toLong(userDetails.get("userId"));
         Long currentUserDeptId = toLong(userDetails.get("deptId"));
         Integer currentUserRoleId = (Integer) userDetails.get("roleId");
-        return R.ok(scrapService.pageOrders(current, size, status, deptId, currentUserDeptId, currentUserRoleId));
+        return R.ok(scrapService.pageOrders(current, size, status, deptId,
+                currentUserId, currentUserDeptId, currentUserRoleId));
     }
 
     /**

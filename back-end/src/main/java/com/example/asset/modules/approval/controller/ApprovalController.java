@@ -63,11 +63,13 @@ public class ApprovalController {
                      @RequestParam(required = false) String status,
                      @RequestParam(required = false) Long deptId,
                      @RequestParam(required = false) Long applyUserId) {
-        // 从 SecurityContext 获取当前用户信息，用于院系隔离
+        // 从 SecurityContext 获取当前用户信息，用于数据范围（院系 / 本人）隔离
         Map<String, Object> userDetails = getUserDetails();
+        Long currentUserId = toLong(userDetails.get("userId"));
         Long currentUserDeptId = toLong(userDetails.get("deptId"));
         Integer currentUserRoleId = (Integer) userDetails.get("roleId");
-        return R.ok(approvalService.pageOrders(current, size, applyType, status, deptId, applyUserId, currentUserDeptId, currentUserRoleId));
+        return R.ok(approvalService.pageOrders(current, size, applyType, status, deptId, applyUserId,
+                currentUserId, currentUserDeptId, currentUserRoleId));
     }
 
     /**
@@ -92,10 +94,11 @@ public class ApprovalController {
     @Operation(summary = "查询申请单详情")
     @GetMapping("/{id}")
     public R<?> detail(@PathVariable Long id) {
-        // 从 SecurityContext 获取当前用户信息，用于院系隔离校验
+        // 从 SecurityContext 获取当前用户信息，用于数据范围校验
         Map<String, Object> userDetails = getUserDetails();
+        Long currentUserId = toLong(userDetails.get("userId"));
         Long currentUserDeptId = toLong(userDetails.get("deptId"));
         Integer currentUserRoleId = (Integer) userDetails.get("roleId");
-        return R.ok(approvalService.getOrderDetail(id, currentUserDeptId, currentUserRoleId));
+        return R.ok(approvalService.getOrderDetail(id, currentUserId, currentUserDeptId, currentUserRoleId));
     }
 }
