@@ -3,7 +3,6 @@ package com.example.asset.modules.check.service.impl;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.asset.common.exception.BusinessException;
@@ -344,33 +343,56 @@ public class CheckServiceImpl implements CheckService {
         return results;
     }
 
+    /**
+     * 确认盘点结果。
+     *
+     * <p><b>本方法不改动资产台账。</b>历史实现在这里把盘亏资产置为「闲置」、盘盈置为「在用」，
+     * 这两个映射在业务上是错的：
+     * <ul>
+     *   <li>盘亏 = 账上有、实物缺失；而「闲置」在系统里表示"在库、可借出"。
+     *       置为闲置会让一件已丢失的资产重新进入可领用池
+     *       （{@code submitApply} 对领用的校验只是 {@code "闲置".equals(status)}）。</li>
+     *   <li>盘盈 = 实物有、账上无。改某条既有资产的状态解决不了"账上缺记录"，
+     *       真正该做的是新增资产登记。</li>
+     *   <li>直接 set 状态还会与在途审批打架：归还终审以 {@code eq(status,"在用")} 做条件更新，
+     *       若盘点先把状态改成闲置，终审会因匹配不到而抛"状态不一致"异常，单据卡死。</li>
+     * </ul>
+     *
+     * <p>因此确认动作现在只做两件事：统计差异、把任务置为已完成。差异的处置走既有业务流程 ——
+     * 盘亏到「报废管理」提交报废单，盘盈到「资产台账」新增登记，
+     * 资产状态仍由审批流统一变更，保证只有一条写路径。
+     *
+     * @return 本次确认的统计（confirmed / shortage / surplus / matched），供前端提示处置方向
+     */
     @Override
     @Transactional
-    public void confirmDiff(Long taskId, List<Long> recordIds) {
+    public Map<String, Object> confirmDiff(Long taskId, List<Long> recordIds) {
+        int confirmed = 0;
+        int shortage = 0;
+        int surplus = 0;
+        int matched = 0;
+
         for (Long recordId : recordIds) {
+            if (recordId == null) {
+                continue;
+            }
             CheckRecord record = checkRecordMapper.selectById(recordId);
-            if (record == null) continue;
-
-            Asset asset = assetMapper.selectById(record.getAssetId());
-            if (asset == null) continue;
-
-            // 根据盘点结果更新资产状态（跳过特殊状态的资产，避免覆盖工作流驱动的状态）
+            if (record == null) {
+                continue;
+            }
+            // 只统计属于本任务的记录，避免调用方误传 id 把别的任务的记录算进来
+            if (!Objects.equals(taskId, record.getTaskId())) {
+                log.warn("盘点确认跳过跨任务记录: taskId={}, recordId={}, recordTaskId={}",
+                        taskId, recordId, record.getTaskId());
+                continue;
+            }
+            confirmed++;
             if ("SHORTAGE".equals(record.getResult())) {
-                int rows = assetMapper.update(null, new LambdaUpdateWrapper<Asset>()
-                                .eq(Asset::getId, asset.getId())
-                                .notIn(Asset::getStatus, "维修中", "已报废")
-                                .set(Asset::getStatus, "闲置"));
-                if (rows == 0) {
-                    log.warn("盘点差异确认跳过: 资产[{}]状态不允许自动变更", asset.getAssetCode());
-                }
+                shortage++;
             } else if ("SURPLUS".equals(record.getResult())) {
-                int rows = assetMapper.update(null, new LambdaUpdateWrapper<Asset>()
-                        .eq(Asset::getId, asset.getId())
-                        .ne(Asset::getStatus, "已报废")
-                        .set(Asset::getStatus, "在用"));
-                if (rows == 0) {
-                    log.warn("盘点差异确认跳过: 资产[{}]状态不允许自动变更", asset.getAssetCode());
-                }
+                surplus++;
+            } else {
+                matched++;
             }
         }
 
@@ -380,5 +402,15 @@ public class CheckServiceImpl implements CheckService {
             task.setStatus("COMPLETED");
             checkTaskMapper.updateById(task);
         }
+
+        log.info("盘点确认完成: taskId={}, 记录 {} 条（盘亏 {} / 盘盈 {} / 相符 {}），资产台账未变更",
+                taskId, confirmed, shortage, surplus, matched);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("confirmed", confirmed);
+        result.put("shortage", shortage);
+        result.put("surplus", surplus);
+        result.put("matched", matched);
+        return result;
     }
 }

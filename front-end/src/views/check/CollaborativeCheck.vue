@@ -5,7 +5,7 @@
       <div>
         <el-button type="primary" @click="addRow">新增盘点记录</el-button>
         <el-button type="success" :loading="analyzing" @click="handleAnalyze">LLM智能分析差异</el-button>
-        <el-button type="warning" @click="handleConfirm">确认差异更新台账</el-button>
+        <el-button type="warning" @click="handleConfirm">确认盘点结果</el-button>
       </div>
     </div>
 
@@ -156,8 +156,23 @@ async function handleConfirm() {
     return
   }
   try {
-    await confirmDiff(taskId, ids)
-    ElMessage.success('差异已确认，台账已更新')
+    const res = await confirmDiff(taskId, ids)
+    const d: any = res.data || {}
+    const parts: string[] = []
+    if (d.shortage) parts.push(`${d.shortage} 条盘亏`)
+    if (d.surplus) parts.push(`${d.surplus} 条盘盈`)
+
+    if (parts.length) {
+      // 确认动作不再直接改资产台账：盘亏要走报废单、盘盈要走新增登记，
+      // 否则「盘亏 → 闲置」会让已丢失的资产重新变成可领用状态。
+      ElMessage({
+        type: 'warning',
+        duration: 8000,
+        message: `盘点已确认：${parts.join('、')}。资产台账未自动变更，请到「报废管理」提交报废单或到「资产台账」新增登记，由审批流生效。`
+      })
+    } else {
+      ElMessage.success('盘点已确认，本次无差异')
+    }
   } catch {
     ElMessage.error('确认失败，请重试')
   }

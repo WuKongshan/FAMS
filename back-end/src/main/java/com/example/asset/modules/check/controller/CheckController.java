@@ -59,8 +59,8 @@ public class CheckController {
         return R.ok(checkService.analyzeDiff(taskId));
     }
 
-    @Operation(summary = "确认差异并更新台账")
-    @OperationLog(module = "协同盘点", operation = "确认", description = "确认盘点差异并更新台账")
+    @Operation(summary = "确认盘点结果（不修改资产台账）")
+    @OperationLog(module = "协同盘点", operation = "确认", description = "确认盘点结果，差异转由报废/新增流程处置")
     @PostMapping("/confirm/{taskId}")
     public R<?> confirmDiff(@PathVariable Long taskId, @RequestBody Map<String, Object> params) {
         @SuppressWarnings("unchecked")
@@ -68,7 +68,6 @@ public class CheckController {
         List<Long> recordIds = rawList.stream()
                 .map(obj -> obj instanceof Number ? ((Number) obj).longValue() : Long.valueOf(obj.toString()))
                 .toList();
-        checkService.confirmDiff(taskId, recordIds);
-        return R.ok("差异确认完成，台账已更新");
+        return R.ok(checkService.confirmDiff(taskId, recordIds));
     }
 }
