@@ -6,20 +6,19 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.asset.common.exception.BusinessException;
-import com.example.asset.common.llm.LLMService;
 import com.example.asset.common.utils.SecurityUtils;
 import com.example.asset.modules.admin.entity.User;
 import com.example.asset.modules.admin.mapper.DepartmentMapper;
 import com.example.asset.modules.admin.mapper.UserMapper;
 import com.example.asset.modules.asset.entity.Asset;
 import com.example.asset.modules.asset.mapper.AssetMapper;
+import com.example.asset.modules.check.client.CheckAnalysisClient;
 import com.example.asset.modules.check.dto.CheckDiffResult;
 import com.example.asset.modules.check.dto.LLMAnalysisItem;
 import com.example.asset.modules.check.entity.CheckRecord;
 import com.example.asset.modules.check.entity.CheckTask;
 import com.example.asset.modules.check.mapper.CheckRecordMapper;
 import com.example.asset.modules.check.mapper.CheckTaskMapper;
-import com.example.asset.modules.check.prompt.CheckAnalysisPrompt;
 import com.example.asset.modules.check.service.CheckService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +39,7 @@ public class CheckServiceImpl implements CheckService {
     private final CheckTaskMapper checkTaskMapper;
     private final CheckRecordMapper checkRecordMapper;
     private final AssetMapper assetMapper;
-    private final LLMService llmService;
+    private final CheckAnalysisClient analysisClient;
     private final UserMapper userMapper;
     private final DepartmentMapper departmentMapper;
 
@@ -238,7 +237,7 @@ public class CheckServiceImpl implements CheckService {
 
     /**
      * LLM 智能分析盘点差异
-     * 调用 DeepSeek API 对差异记录进行专业分析并给出处理建议
+     * 调用 Python 分析服务对差异记录进行专业分析并给出处理建议；服务不可用时回退模板
      */
     @Override
     public List<CheckDiffResult> analyzeDiff(Long taskId) {
@@ -247,41 +246,33 @@ public class CheckServiceImpl implements CheckService {
             return Collections.emptyList();
         }
 
-        // 筛选有差异的记录，相符的直接跳过 LLM 调用
+        // 筛选有差异的记录，相符的直接跳过远程调用
         List<CheckRecord> diffRecords = records.stream()
                 .filter(r -> !"MATCH".equals(r.getResult()))
                 .collect(Collectors.toList());
 
-        // 用于存放 LLM 分析结果的映射：recordId -> LLMAnalysisItem
+        // 用于存放分析结果的映射：recordId -> LLMAnalysisItem
         Map<Long, LLMAnalysisItem> llmMap = Collections.emptyMap();
 
         if (CollUtil.isNotEmpty(diffRecords)) {
             CheckTask task = checkTaskMapper.selectById(taskId);
-            String prompt = CheckAnalysisPrompt.build(task, diffRecords);
 
             try {
-                // 调用 DeepSeek API 进行批量分析
-                List<LLMAnalysisItem> llmResults = llmService.chatForList(
-                        CheckAnalysisPrompt.SYSTEM_PROMPT,
-                        prompt,
-                        LLMAnalysisItem.class);
+                // 分片、重试、prompt 都在 Python 侧，这里只发一次请求
+                var outcome = analysisClient.analyze(task, diffRecords);
+                llmMap = outcome.items();
 
-                if (CollUtil.isNotEmpty(llmResults)) {
-                    llmMap = llmResults.stream()
-                            .filter(item -> item.getRecordId() != null)
-                            .collect(Collectors.toMap(LLMAnalysisItem::getRecordId, item -> item));
-                }
-                log.info("LLM 差异分析完成, 任务ID: {}, 差异条数: {}, 分析结果条数: {}",
-                        taskId, diffRecords.size(), llmMap.size());
+                log.info("差异分析完成, 任务ID: {}, 差异条数: {}, 引擎: {}",
+                        taskId, diffRecords.size(), outcome.engine());
 
             } catch (Exception e) {
-                log.error("LLM 差异分析调用失败, 任务ID: {}, 回退到模板分析", taskId, e);
+                log.error("分析服务调用失败, 任务ID: {}, 回退到模板分析", taskId, e);
                 // 降级：使用模板分析（不回抛异常，保证功能可用）
                 return fallbackAnalyze(records);
             }
         }
 
-        // 将 LLM 结果与全部记录合并
+        // 将分析结果与全部记录合并
         return mergeResults(records, llmMap);
     }
 

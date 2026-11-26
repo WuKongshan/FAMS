@@ -1,9 +1,9 @@
 package com.example.asset.modules.check.service.impl;
 
-import com.example.asset.common.llm.LLMService;
 import com.example.asset.modules.admin.mapper.DepartmentMapper;
 import com.example.asset.modules.admin.mapper.UserMapper;
 import com.example.asset.modules.asset.mapper.AssetMapper;
+import com.example.asset.modules.check.client.CheckAnalysisClient;
 import com.example.asset.modules.check.entity.CheckRecord;
 import com.example.asset.modules.check.entity.CheckTask;
 import com.example.asset.modules.check.mapper.CheckRecordMapper;
@@ -41,7 +41,7 @@ class CheckConfirmTest {
     @Mock private CheckTaskMapper checkTaskMapper;
     @Mock private CheckRecordMapper checkRecordMapper;
     @Mock private AssetMapper assetMapper;
-    @Mock private LLMService llmService;
+    @Mock private CheckAnalysisClient analysisClient;
     @Mock private UserMapper userMapper;
     @Mock private DepartmentMapper departmentMapper;
 

@@ -3,8 +3,8 @@ package com.example.asset.modules.check.dto;
 import lombok.Data;
 
 /**
- * LLM 返回的单条分析结果
- * 用于接收 DeepSeek API 返回的 JSON 数组元素
+ * 分析服务返回的单条结果
+ * 对应 llm-service 响应中的 {@code items[]} 元素
  */
 @Data
 public class LLMAnalysisItem {

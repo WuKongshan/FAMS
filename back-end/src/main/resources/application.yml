@@ -62,12 +62,13 @@ knife4j:
   setting:
     language: zh_cn
 
-# LLM 配置（DeepSeek）
-llm:
-  deepseek:
-    api-key: ${DEEPSEEK_API_KEY:}
-    base-url: https://api.deepseek.com
-    model: deepseek-chat
+# 盘点差异分析服务（Python，llm-service/）
+analysis:
+  base-url: http://127.0.0.1:8000
+  connect-timeout-ms: 3000
+  read-timeout-ms: 200000
+  # 设为 false 时跳过 Python 调用直接走模板分析，便于排障与演示
+  enabled: true
 
 # Flowable 工作流引擎
 flowable:
