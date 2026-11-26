@@ -2,6 +2,7 @@ package com.example.asset.modules.scrap.controller;
 
 import com.example.asset.common.annotation.OperationLog;
 import com.example.asset.common.result.R;
+import com.example.asset.common.utils.PageUtils;
 import com.example.asset.modules.scrap.entity.ScrapOrder;
 import com.example.asset.modules.scrap.service.ScrapService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -77,8 +78,8 @@ public class ScrapController {
         Long currentUserId = toLong(userDetails.get("userId"));
         Long currentUserDeptId = toLong(userDetails.get("deptId"));
         Integer currentUserRoleId = (Integer) userDetails.get("roleId");
-        return R.ok(scrapService.pageOrders(current, size, status, deptId,
-                currentUserId, currentUserDeptId, currentUserRoleId));
+        return R.ok(scrapService.pageOrders(PageUtils.clampCurrent(current), PageUtils.clampSize(size),
+                status, deptId, currentUserId, currentUserDeptId, currentUserRoleId));
     }
 
     /**

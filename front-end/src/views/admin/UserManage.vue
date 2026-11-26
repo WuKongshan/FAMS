@@ -114,7 +114,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getUserPage, addUser, updateUser, deleteUser, resetPassword, getDepartments } from '@/api/admin'
+import { getUserPage, addUser, updateUser, deleteUser, resetPassword, getDepartments, getUserStats } from '@/api/admin'
 
 const loading = ref(false)
 const tableData = ref<any[]>([])
@@ -146,12 +146,10 @@ const form = reactive<any>({
 
 async function fetchStats() {
   try {
-    const res = await getUserPage({ size: 1000 })
-    const records = res.data.records || []
-    stats.total = res.data.total
-    stats.adminCount = records.filter((u: any) => u.roleId === 1).length
-    stats.deptAdminCount = records.filter((u: any) => u.roleId === 2).length
-    stats.userCount = records.filter((u: any) => u.roleId === 3).length
+    // 统计由后端聚合返回。原先用 getUserPage({ size: 1000 }) 拉全量再在前端 filter，
+    // 既浪费带宽，也会在用户数超过分页上限时算出错误的角色人数。
+    const res = await getUserStats()
+    Object.assign(stats, res.data || {})
   } catch { /* stats are non-critical */ }
 }
 

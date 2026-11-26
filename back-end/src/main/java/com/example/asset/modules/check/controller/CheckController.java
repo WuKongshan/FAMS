@@ -2,6 +2,7 @@ package com.example.asset.modules.check.controller;
 
 import com.example.asset.common.annotation.OperationLog;
 import com.example.asset.common.result.R;
+import com.example.asset.common.utils.PageUtils;
 import com.example.asset.modules.check.entity.CheckRecord;
 import com.example.asset.modules.check.entity.CheckTask;
 import com.example.asset.modules.check.service.CheckService;
@@ -34,7 +35,7 @@ public class CheckController {
     public R<?> pageTasks(@RequestParam(defaultValue = "1") int current,
                           @RequestParam(defaultValue = "10") int size,
                           @RequestParam(required = false) String status) {
-        return R.ok(checkService.pageTasks(current, size, status));
+        return R.ok(checkService.pageTasks(PageUtils.clampCurrent(current), PageUtils.clampSize(size), status));
     }
 
     @Operation(summary = "录入盘点数据（多人协同）")

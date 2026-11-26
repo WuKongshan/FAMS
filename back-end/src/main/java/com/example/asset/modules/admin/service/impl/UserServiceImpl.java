@@ -12,6 +12,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
 
@@ -34,6 +37,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
         wrapper.orderByDesc(User::getCreateTime);
         return page(new Page<>(current, size), wrapper);
+    }
+
+    @Override
+    public Map<String, Object> stats() {
+        // 用 count 而不是把用户全查出来再 stream 过滤：
+        // 各角色人数由数据库聚合，内存占用与用户总量无关。
+        Map<String, Object> result = new HashMap<>();
+        result.put("total", count());
+        result.put("adminCount", count(new LambdaQueryWrapper<User>().eq(User::getRoleId, 1L)));
+        result.put("deptAdminCount", count(new LambdaQueryWrapper<User>().eq(User::getRoleId, 2L)));
+        result.put("userCount", count(new LambdaQueryWrapper<User>().eq(User::getRoleId, 3L)));
+        return result;
     }
 
     @Override

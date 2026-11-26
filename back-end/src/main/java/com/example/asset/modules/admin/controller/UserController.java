@@ -2,6 +2,7 @@ package com.example.asset.modules.admin.controller;
 
 import com.example.asset.common.annotation.OperationLog;
 import com.example.asset.common.result.R;
+import com.example.asset.common.utils.PageUtils;
 import com.example.asset.modules.admin.entity.User;
 import com.example.asset.modules.admin.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -27,7 +28,15 @@ public class UserController {
                      @RequestParam(defaultValue = "10") int size,
                      @RequestParam(required = false) String keyword,
                      @RequestParam(required = false) Long deptId) {
-        return R.ok(userService.pageUsers(current, size, keyword, deptId));
+        return R.ok(userService.pageUsers(PageUtils.clampCurrent(current), PageUtils.clampSize(size),
+                keyword, deptId));
+    }
+
+    @Operation(summary = "用户概览统计")
+    @GetMapping("/stats")
+    @PreAuthorize("hasRole('ADMIN')")
+    public R<?> stats() {
+        return R.ok(userService.stats());
     }
 
     @Operation(summary = "新增用户")

@@ -4,6 +4,7 @@ import cn.hutool.poi.excel.ExcelUtil;
 import cn.hutool.poi.excel.ExcelWriter;
 import com.example.asset.common.annotation.OperationLog;
 import com.example.asset.common.result.R;
+import com.example.asset.common.utils.PageUtils;
 import com.example.asset.modules.asset.entity.Asset;
 import com.example.asset.modules.asset.mapper.AssetCategoryMapper;
 import com.example.asset.modules.asset.service.AssetService;
@@ -40,7 +41,8 @@ public class AssetController {
                      @RequestParam(required = false) Long categoryId,
                      @RequestParam(required = false) String status,
                      @RequestParam(required = false) Long deptId) {
-        return R.ok(assetService.pageAssets(current, size, keyword, categoryId, status, deptId));
+        return R.ok(assetService.pageAssets(PageUtils.clampCurrent(current), PageUtils.clampSize(size),
+                keyword, categoryId, status, deptId));
     }
 
     @Operation(summary = "新增资产")

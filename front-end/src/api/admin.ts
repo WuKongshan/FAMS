@@ -6,6 +6,11 @@ export function getUserPage(params: any) {
   return request.get('/admin/user/page', { params })
 }
 
+/** 用户概览统计（总数 + 各角色人数），避免为了算统计去拉全量分页 */
+export function getUserStats() {
+  return request.get('/admin/user/stats')
+}
+
 // ==================== 公共查询（下拉列表） ====================
 
 /** 获取全部部门列表（用于下拉选择） */

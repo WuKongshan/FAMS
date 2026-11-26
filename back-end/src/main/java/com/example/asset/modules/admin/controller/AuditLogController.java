@@ -1,6 +1,7 @@
 package com.example.asset.modules.admin.controller;
 
 import com.example.asset.common.result.R;
+import com.example.asset.common.utils.PageUtils;
 import com.example.asset.modules.admin.service.OperationLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,7 +34,8 @@ public class AuditLogController {
                      @RequestParam(required = false) Integer status,
                      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startTime,
                      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endTime) {
-        return R.ok(operationLogService.pageLogs(current, size, module, operation, operatorName, status, startTime, endTime));
+        return R.ok(operationLogService.pageLogs(PageUtils.clampCurrent(current), PageUtils.clampSize(size),
+                module, operation, operatorName, status, startTime, endTime));
     }
 
     @Operation(summary = "查询操作日志详情")

@@ -2,6 +2,7 @@ package com.example.asset.modules.approval.controller;
 
 import com.example.asset.common.annotation.OperationLog;
 import com.example.asset.common.result.R;
+import com.example.asset.common.utils.PageUtils;
 import com.example.asset.modules.approval.entity.ApplyOrder;
 import com.example.asset.modules.approval.service.ApprovalService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -68,7 +69,8 @@ public class ApprovalController {
         Long currentUserId = toLong(userDetails.get("userId"));
         Long currentUserDeptId = toLong(userDetails.get("deptId"));
         Integer currentUserRoleId = (Integer) userDetails.get("roleId");
-        return R.ok(approvalService.pageOrders(current, size, applyType, status, deptId, applyUserId,
+        return R.ok(approvalService.pageOrders(PageUtils.clampCurrent(current), PageUtils.clampSize(size),
+                applyType, status, deptId, applyUserId,
                 currentUserId, currentUserDeptId, currentUserRoleId));
     }
 

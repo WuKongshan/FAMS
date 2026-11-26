@@ -2,6 +2,7 @@ package com.example.asset.modules.repair.controller;
 
 import com.example.asset.common.annotation.OperationLog;
 import com.example.asset.common.result.R;
+import com.example.asset.common.utils.PageUtils;
 import com.example.asset.modules.repair.entity.RepairOrder;
 import com.example.asset.modules.repair.service.RepairService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -68,8 +69,8 @@ public class RepairController {
         Long currentUserId = toLong(userDetails.get("userId"));
         Long currentUserDeptId = toLong(userDetails.get("deptId"));
         Integer currentUserRoleId = (Integer) userDetails.get("roleId");
-        return R.ok(repairService.pageOrders(current, size, status, deptId,
-                currentUserId, currentUserDeptId, currentUserRoleId));
+        return R.ok(repairService.pageOrders(PageUtils.clampCurrent(current), PageUtils.clampSize(size),
+                status, deptId, currentUserId, currentUserDeptId, currentUserRoleId));
     }
 
     /**
