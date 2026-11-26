@@ -24,6 +24,7 @@ import com.example.asset.modules.check.prompt.CheckAnalysisPrompt;
 import com.example.asset.modules.check.service.CheckService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -156,7 +157,15 @@ public class CheckServiceImpl implements CheckService {
         if (record.getId() != null) {
             checkRecordMapper.updateById(record);
         } else {
-            checkRecordMapper.insert(record);
+            try {
+                checkRecordMapper.insert(record);
+            } catch (DuplicateKeyException e) {
+                // 唯一索引 uk_check_record_task_asset 拦下了并发重复插入：
+                // 说明另一个请求已经为本任务下的同一资产建好了记录，本次填报应合并进那一行，
+                // 而不是让接口 500。这里只捕获 DuplicateKeyException（唯一冲突这一种确定语义），
+                // 其他数据访问异常照常上抛，避免掩盖真实故障。
+                mergeIntoExistingRecord(record);
+            }
         }
 
         // 首次录入盘点数据时，将任务状态从 PENDING 改为 IN_PROGRESS
@@ -165,6 +174,60 @@ public class CheckServiceImpl implements CheckService {
             task.setStatus("IN_PROGRESS");
             checkTaskMapper.updateById(task);
         }
+    }
+
+    /**
+     * 并发重复插入的兜底合并：把本次填报内容写到已存在的那条记录上。
+     *
+     * <p>触发场景：两个盘点人（或一次误双击）同时对同一 (task_id, asset_id) 走"查无记录 → insert"，
+     * 后到者在唯一索引上抛 DuplicateKeyException。此时以库中已存在的行 id 为准执行 updateById：
+     * 复用那一行已有的主键（前端手上的 id 不会悬空），本次填报成为最终值（后写覆盖），
+     * 与前端"协同编辑、增量保存"的既有语义保持一致。
+     *
+     * <p><b>创建审计字段不会被自动保护，必须显式清空。</b>
+     * MetaObjectHandlerConfig.insertFill 用的是 strictInsertFill，它在那次「先填充、后失败」的 insert
+     * 尝试时就已经把 createBy/createTime 写到了实体上。也就是说进入本方法时这两个字段已非 null，
+     * MyBatis-Plus 的 NOT_NULL 策略会把它们照常拼进 updateById 的 SET，
+     * 先到者那一行的创建人/创建时间就被后来者与当前时间覆盖了（不是策略失效，是字段已被污染）。
+     * 因此"保留先到者的创建审计"是靠下面的显式清空换来的，不是框架默认行为。
+     * updateBy/updateTime 相反不需要干预：它们的语义就是"最后写入者"，
+     * 合并时被本次请求刷新正是期望结果，且 insertFill 写入的本来就是本次请求的用户与时刻。
+     *
+     * <p>覆盖范围：实盘数量 / 差异数量 / 盘点结果 / 备注 / 盘点人 / 资产快照。
+     * 其中 diffQuantity、result 已在调用插入之前按最新台账算好，直接复用 record 上的值，
+     * 不在本方法内重算，避免两条写入路径的差异判定逻辑分叉。
+     *
+     * @param record 本次待保存的盘点记录（insert 失败，id 仍为 null）
+     */
+    private void mergeIntoExistingRecord(CheckRecord record) {
+        CheckRecord existing = checkRecordMapper.selectOne(new LambdaQueryWrapper<CheckRecord>()
+                .eq(CheckRecord::getTaskId, record.getTaskId())
+                .eq(CheckRecord::getAssetId, record.getAssetId())
+                .last("LIMIT 1"));
+        if (existing == null) {
+            // 理论上不可达：刚刚才撞了唯一索引，行必然存在。
+            // 但如果极端情况下窗口内先到者又被物理删除，这里绝不能静默吞掉本次填报，
+            // 直接上抛让事务回滚，由调用方看到明确错误。
+            // 已知边界：若那一行是被「逻辑删除」而不是物理删除，MyBatis-Plus 的 @TableLogic 会给上面的
+            // selectOne 自动补 deleted = 0，从而查不到，同样落到这里抛错（接口 500）。
+            // 目前 check_record 没有任何删除入口，故该路径不可达；一旦以后新增"撤销盘点记录"，
+            // 需要把唯一索引 uk_check_record_task_asset 放宽成 (task_id, asset_id, deleted)
+            // （代价是同一条记录只能被逻辑删除一次，符合业务预期），或让这里的查询绕过逻辑删除。
+            // 这段边界说明之所以写在 Java 里而不是 V10 迁移注释里：迁移文件一旦被 apply 过就不可再改，
+            // 连注释改一个字节都会让 Flyway 的 checksum 校验失败、应用启动即挂。
+            throw new IllegalStateException(
+                    "盘点记录唯一冲突后未查到已存在记录, taskId=" + record.getTaskId()
+                            + ", assetId=" + record.getAssetId());
+        }
+        // 清空被失败的 insert 污染过的创建审计字段，让 NOT_NULL 策略把它们排除在 SET 之外。
+        // 原因见方法注释：insertFill 在 insert 组装 SQL 之前就填好了它们，非 null 即会被拼进 UPDATE。
+        // updateBy/updateTime 刻意不动 —— 它们本就该被本次合并请求刷新。
+        record.setCreateBy(null);
+        record.setCreateTime(null);
+        record.setId(existing.getId());
+        checkRecordMapper.updateById(record);
+        log.info("盘点记录并发重复插入已合并, taskId={}, assetId={}, recordId={}",
+                record.getTaskId(), record.getAssetId(), existing.getId());
     }
 
     @Override
