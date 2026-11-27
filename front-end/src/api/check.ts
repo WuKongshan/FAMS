@@ -25,6 +25,15 @@ export function getAnalyzeJob(jobId: number) {
   return request.get(`/check/analyze/job/${jobId}`)
 }
 
+// 待处置差异：只做标记，不改资产台账
+export function listPendingDiffs(taskId?: number) {
+  return request.get('/check/diff/pending', { params: taskId ? { taskId } : {} })
+}
+
+export function handleDiff(recordId: number, handleType: string) {
+  return request.post(`/check/diff/${recordId}/handle`, null, { params: { handleType } })
+}
+
 export function confirmDiff(taskId: number, recordIds: number[]) {
   return request.post(`/check/confirm/${taskId}`, { recordIds })
 }

@@ -4,6 +4,7 @@ import com.example.asset.modules.admin.mapper.DepartmentMapper;
 import com.example.asset.modules.admin.mapper.UserMapper;
 import com.example.asset.modules.asset.mapper.AssetMapper;
 import com.example.asset.modules.check.client.CheckAnalysisClient;
+import com.example.asset.modules.check.dto.AnalysisResult;
 import com.example.asset.modules.check.dto.CheckDiffResult;
 import com.example.asset.modules.check.dto.LLMAnalysisItem;
 import com.example.asset.modules.check.entity.CheckRecord;
@@ -68,9 +69,11 @@ class CheckAnalysisFallbackTest {
         when(checkTaskMapper.selectById(TASK_ID)).thenReturn(new CheckTask());
         when(analysisClient.analyze(any(), any())).thenThrow(new RuntimeException("boom"));
 
-        List<CheckDiffResult> results = checkService.analyzeDiff(TASK_ID);
+        AnalysisResult result = checkService.analyzeDiff(TASK_ID);
+        List<CheckDiffResult> results = result.getItems();
 
         assertThat(results).hasSize(3);
+        assertThat(result.getEngine()).isEqualTo("rule");  // 降级必须如实标记来源
         assertThat(results).allSatisfy(r -> {
             assertThat(r.getAnalysis()).isNotBlank();
             assertThat(r.getSuggestion()).isNotBlank();
@@ -93,9 +96,11 @@ class CheckAnalysisFallbackTest {
         when(analysisClient.analyze(any(), any()))
                 .thenReturn(new CheckAnalysisClient.AnalysisOutcome(Map.of(11L, item), "llm"));
 
-        List<CheckDiffResult> results = checkService.analyzeDiff(TASK_ID);
+        AnalysisResult result = checkService.analyzeDiff(TASK_ID);
+        List<CheckDiffResult> results = result.getItems();
 
         assertThat(results).hasSize(1);
+        assertThat(result.getEngine()).isEqualTo("llm");
         assertThat(results.get(0).getRecordId()).isEqualTo(11L);
         assertThat(results.get(0).getAnalysis()).isEqualTo("模型分析X");
         assertThat(results.get(0).getSuggestion()).isEqualTo("模型建议Y");

@@ -3,6 +3,7 @@ package com.example.asset.modules.check.service;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.example.asset.modules.check.entity.CheckRecord;
 import com.example.asset.modules.check.entity.CheckTask;
+import com.example.asset.modules.check.dto.AnalysisResult;
 import com.example.asset.modules.check.dto.CheckDiffResult;
 
 import java.util.List;
@@ -22,8 +23,28 @@ public interface CheckService {
     /** 查询盘点记录列表 */
     List<CheckRecord> getRecordsByTaskId(Long taskId);
 
-    /** LLM 智能分析差异 */
-    List<CheckDiffResult> analyzeDiff(Long taskId);
+    /**
+     * 分析盘点差异。
+     * <p>返回条目 + 结论来源（llm / rule / mixed）；分析服务不可用时回退模板，来源记为 rule。</p>
+     */
+    AnalysisResult analyzeDiff(Long taskId);
+
+    /**
+     * 待处置的差异记录。
+     * <p>只返回盘盈/盘亏（diff_handle_status = PENDING）的记录；相符记录不参与处置流程。</p>
+     *
+     * @param taskId 为 null 时查全部任务
+     */
+    List<CheckRecord> listPendingDiffs(Long taskId);
+
+    /**
+     * 标记一条差异为已处置。
+     * <p>只是打标签，不直接改资产状态 —— 资产变更仍走报废/新增审批。
+     * 重复处置幂等，不覆盖首次的处置人与时间。</p>
+     *
+     * @param handleType SCRAP=转报废 ASSET_ADD=补登记 MANUAL=人工确认
+     */
+    void handleDiff(Long recordId, String handleType);
 
     /**
      * 确认盘点结果。

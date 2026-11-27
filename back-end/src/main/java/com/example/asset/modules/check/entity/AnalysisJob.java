@@ -30,6 +30,13 @@ public class AnalysisJob extends BaseEntity {
     /** 失败原因 */
     private String errorMessage;
 
+    /**
+     * 结论来源：llm / rule / mixed。
+     * 用于识别"静默降级"—— llm-service 不可用时 Java 会回退模板文案，
+     * 作业仍是 SUCCESS，只看状态无法判断结论可信度。
+     */
+    private String engine;
+
     /** 结束时间（成功或失败） */
     private LocalDateTime finishedTime;
 }

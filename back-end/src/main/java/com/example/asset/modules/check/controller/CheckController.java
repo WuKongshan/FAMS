@@ -67,6 +67,21 @@ public class CheckController {
         return R.ok(analysisJobService.getStatus(jobId));
     }
 
+    @Operation(summary = "待处置的差异记录")
+    @GetMapping("/diff/pending")
+    public R<?> listPendingDiffs(@RequestParam(required = false) Long taskId) {
+        return R.ok(checkService.listPendingDiffs(taskId));
+    }
+
+    @Operation(summary = "标记差异已处置")
+    @OperationLog(module = "协同盘点", operation = "处置差异", description = "标记盘点差异为已处置")
+    @PostMapping("/diff/{recordId}/handle")
+    public R<?> handleDiff(@PathVariable Long recordId,
+                           @RequestParam String handleType) {
+        checkService.handleDiff(recordId, handleType);
+        return R.ok("已标记处置");
+    }
+
     @Operation(summary = "确认盘点结果（不修改资产台账）")
     @OperationLog(module = "协同盘点", operation = "确认", description = "确认盘点结果，差异转由报废/新增流程处置")
     @PostMapping("/confirm/{taskId}")

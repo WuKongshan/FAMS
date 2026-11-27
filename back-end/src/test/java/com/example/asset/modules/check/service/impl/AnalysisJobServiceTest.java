@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.example.asset.common.exception.BusinessException;
 import com.example.asset.modules.check.dto.AnalysisJobVO;
+import com.example.asset.modules.check.dto.AnalysisResult;
 import com.example.asset.modules.check.dto.CheckDiffResult;
 import com.example.asset.modules.check.entity.AnalysisJob;
 import com.example.asset.modules.check.mapper.AnalysisJobMapper;
@@ -87,7 +88,7 @@ class AnalysisJobServiceTest {
     @DisplayName("提交：插入 PENDING 行并立刻返回，不等分析结果")
     void submit_returnsImmediatelyWithPending() {
         givenInlineExecutor();
-        when(checkService.analyzeDiff(TASK_ID)).thenReturn(List.of(diffResult(1)));
+        when(checkService.analyzeDiff(TASK_ID)).thenReturn(new AnalysisResult(List.of(diffResult(1)), "llm"));
         service = newService();
 
         AnalysisJobVO vo = service.submit(TASK_ID);
@@ -104,7 +105,8 @@ class AnalysisJobServiceTest {
     @DisplayName("分析成功：状态流转 RUNNING -> SUCCESS，结果写入 result_json")
     void run_success_persistsResult() {
         givenInlineExecutor();
-        when(checkService.analyzeDiff(TASK_ID)).thenReturn(List.of(diffResult(1), diffResult(2)));
+        when(checkService.analyzeDiff(TASK_ID))
+                .thenReturn(new AnalysisResult(List.of(diffResult(1), diffResult(2)), "rule"));
         service = newService();
 
         service.submit(TASK_ID);
@@ -118,6 +120,7 @@ class AnalysisJobServiceTest {
         assertThat(finished.getStatus()).isEqualTo(AnalysisJobServiceImpl.STATUS_SUCCESS);
         assertThat(finished.getFinishedTime()).isNotNull();
         assertThat(finished.getResultJson()).contains("\"recordId\":1").contains("模型分析2");
+        assertThat(finished.getEngine()).isEqualTo("rule");  // 来源必须落库，否则静默降级无法察觉
     }
 
     @Test

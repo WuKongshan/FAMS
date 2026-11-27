@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.asset.common.config.AnalysisAsyncConfig;
 import com.example.asset.common.exception.BusinessException;
 import com.example.asset.modules.check.dto.AnalysisJobVO;
+import com.example.asset.modules.check.dto.AnalysisResult;
 import com.example.asset.modules.check.dto.CheckDiffResult;
 import com.example.asset.modules.check.entity.AnalysisJob;
 import com.example.asset.modules.check.mapper.AnalysisJobMapper;
@@ -18,7 +19,6 @@ import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * 分析任务实现。
@@ -92,6 +92,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         }
 
         AnalysisJobVO vo = toVO(job);
+        vo.setEngine(job.getEngine());
+        vo.setDegraded("rule".equals(job.getEngine()));
         if (STATUS_SUCCESS.equals(job.getStatus()) && StrUtil.isNotBlank(job.getResultJson())) {
             vo.setResult(JSONUtil.toList(job.getResultJson(), CheckDiffResult.class));
         } else if (STATUS_FAILED.equals(job.getStatus())) {
@@ -105,17 +107,21 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         long startedAt = System.currentTimeMillis();
         markRunning(jobId);
         try {
-            List<CheckDiffResult> result = checkService.analyzeDiff(taskId);
+            AnalysisResult result = checkService.analyzeDiff(taskId);
 
             AnalysisJob update = new AnalysisJob();
             update.setId(jobId);
             update.setStatus(STATUS_SUCCESS);
-            update.setResultJson(JSONUtil.toJsonStr(result));
+            update.setResultJson(JSONUtil.toJsonStr(result.getItems()));
+            // 记录结论来源：llm-service 不可用时 analyzeDiff 会回退模板并标 rule，
+            // 不存这个值，前端无法区分"真分析了"和"静默降级"
+            update.setEngine(result.getEngine());
             update.setFinishedTime(LocalDateTime.now());
             analysisJobMapper.updateById(update);
 
-            log.info("分析作业 {} 完成, 任务ID: {}, 结果 {} 条, 耗时 {}ms",
-                    jobId, taskId, result.size(), System.currentTimeMillis() - startedAt);
+            log.info("分析作业 {} 完成, 任务ID: {}, 结果 {} 条, 引擎: {}, 耗时 {}ms",
+                    jobId, taskId, result.getItems().size(), result.getEngine(),
+                    System.currentTimeMillis() - startedAt);
         } catch (Exception e) {
             // 这里必须吞掉异常：异常一旦抛到线程池外就没人接了，任务会永远停在 RUNNING
             log.error("分析作业 {} 失败, 任务ID: {}", jobId, taskId, e);

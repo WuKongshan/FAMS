@@ -28,6 +28,12 @@ public class AnalysisJobVO {
     /** 仅 FAILED 时有值 */
     private String error;
 
+    /** 结论来源：llm / rule / mixed */
+    private String engine;
+
+    /** 是否走了模板兜底（engine=rule）—— 前端据此提示"本次未使用 AI" */
+    private boolean degraded;
+
     /** 供前端判断是否已结束 */
     private boolean finished;
 

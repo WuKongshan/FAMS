@@ -13,6 +13,7 @@ import com.example.asset.modules.admin.mapper.UserMapper;
 import com.example.asset.modules.asset.entity.Asset;
 import com.example.asset.modules.asset.mapper.AssetMapper;
 import com.example.asset.modules.check.client.CheckAnalysisClient;
+import com.example.asset.modules.check.dto.AnalysisResult;
 import com.example.asset.modules.check.dto.CheckDiffResult;
 import com.example.asset.modules.check.dto.LLMAnalysisItem;
 import com.example.asset.modules.check.entity.CheckRecord;
@@ -27,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -35,6 +37,16 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class CheckServiceImpl implements CheckService {
+
+    /** 结论来源：模型 / 规则模板 */
+    public static final String ENGINE_RULE = "rule";
+
+    /** 差异处置状态：待处置 / 已处置（相符记录为 null，不参与处置流程） */
+    public static final String DIFF_PENDING = "PENDING";
+    public static final String DIFF_HANDLED = "HANDLED";
+
+    /** 允许的处置方式：转报废 / 补登记 / 人工确认 */
+    public static final List<String> HANDLE_TYPES = List.of("SCRAP", "ASSET_ADD", "MANUAL");
 
     private final CheckTaskMapper checkTaskMapper;
     private final CheckRecordMapper checkRecordMapper;
@@ -240,10 +252,10 @@ public class CheckServiceImpl implements CheckService {
      * 调用 Python 分析服务对差异记录进行专业分析并给出处理建议；服务不可用时回退模板
      */
     @Override
-    public List<CheckDiffResult> analyzeDiff(Long taskId) {
+    public AnalysisResult analyzeDiff(Long taskId) {
         List<CheckRecord> records = getRecordsByTaskId(taskId);
         if (CollUtil.isEmpty(records)) {
-            return Collections.emptyList();
+            return new AnalysisResult(Collections.emptyList(), ENGINE_RULE);
         }
 
         // 筛选有差异的记录，相符的直接跳过远程调用
@@ -253,6 +265,7 @@ public class CheckServiceImpl implements CheckService {
 
         // 用于存放分析结果的映射：recordId -> LLMAnalysisItem
         Map<Long, LLMAnalysisItem> llmMap = Collections.emptyMap();
+        String engine = ENGINE_RULE;
 
         if (CollUtil.isNotEmpty(diffRecords)) {
             CheckTask task = checkTaskMapper.selectById(taskId);
@@ -261,19 +274,61 @@ public class CheckServiceImpl implements CheckService {
                 // 分片、重试、prompt 都在 Python 侧，这里只发一次请求
                 var outcome = analysisClient.analyze(task, diffRecords);
                 llmMap = outcome.items();
+                engine = StrUtil.blankToDefault(outcome.engine(), ENGINE_RULE);
 
                 log.info("差异分析完成, 任务ID: {}, 差异条数: {}, 引擎: {}",
-                        taskId, diffRecords.size(), outcome.engine());
+                        taskId, diffRecords.size(), engine);
 
             } catch (Exception e) {
                 log.error("分析服务调用失败, 任务ID: {}, 回退到模板分析", taskId, e);
-                // 降级：使用模板分析（不回抛异常，保证功能可用）
-                return fallbackAnalyze(records);
+                // 降级：使用模板分析（不回抛异常，保证功能可用）。
+                // engine 记为 rule —— 这是"静默降级"能被看见的唯一凭据。
+                return new AnalysisResult(fallbackAnalyze(records), ENGINE_RULE);
             }
         }
 
         // 将分析结果与全部记录合并
-        return mergeResults(records, llmMap);
+        return new AnalysisResult(mergeResults(records, llmMap), engine);
+    }
+
+    @Override
+    public List<CheckRecord> listPendingDiffs(Long taskId) {
+        LambdaQueryWrapper<CheckRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(CheckRecord::getDiffHandleStatus, DIFF_PENDING)
+                .eq(taskId != null, CheckRecord::getTaskId, taskId)
+                .orderByAsc(CheckRecord::getTaskId)
+                .orderByAsc(CheckRecord::getId);
+        return checkRecordMapper.selectList(wrapper);
+    }
+
+    @Override
+    public void handleDiff(Long recordId, String handleType) {
+        if (!HANDLE_TYPES.contains(handleType)) {
+            throw new BusinessException("处置方式不合法，可选：" + String.join(" / ", HANDLE_TYPES));
+        }
+
+        CheckRecord record = checkRecordMapper.selectById(recordId);
+        if (record == null) {
+            throw new BusinessException("盘点记录不存在");
+        }
+        if ("MATCH".equals(record.getResult())) {
+            throw new BusinessException("该记录账实相符，无需处置");
+        }
+        if (DIFF_HANDLED.equals(record.getDiffHandleStatus())) {
+            // 幂等：重复点击不报错，也不覆盖首次的处置人与时间
+            log.info("差异记录 {} 已处置过，忽略重复请求", recordId);
+            return;
+        }
+
+        CheckRecord update = new CheckRecord();
+        update.setId(recordId);
+        update.setDiffHandleStatus(DIFF_HANDLED);
+        update.setDiffHandleType(handleType);
+        update.setDiffHandleTime(LocalDateTime.now());
+        update.setDiffHandleBy(SecurityUtils.getCurrentUserId());
+        checkRecordMapper.updateById(update);
+
+        log.info("差异记录 {} 已处置, 方式: {}", recordId, handleType);
     }
 
     /**
