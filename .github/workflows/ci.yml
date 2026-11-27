@@ -1,0 +1,97 @@
+# FAMS 持续集成流水线
+#
+# 三个相互独立的 job，任何一个失败都说明主分支不可用：
+#   1. backend      —— Java 17 + Maven，跑 back-end 全部单元测试（纯 Mockito，不加载 Spring 上下文、
+#                      不需要 MySQL / Redis，也不读取任何 .env 或 secret）
+#   2. frontend     —— Node 22 + npm ci，执行 vue-tsc 类型检查与 vite 生产构建
+#   3. llm-service  —— Python 3.13 + pip，安装依赖后对 FastAPI 应用做一次最小冒烟（GET /health）
+#
+# 设计约束：不配置 secrets、不起数据库 service 容器、不缓存本地 .env，保证 fork 与 PR 都能直接跑通。
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: 后端测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: back-end/pom.xml
+
+      # 不加 -o / --offline：CI runner 上没有本地仓库，必须联网拉取依赖
+      - name: 执行单元测试
+        working-directory: back-end
+        run: mvn -B -ntp test
+
+  frontend:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: front-end/package-lock.json
+
+      - name: 安装依赖
+        working-directory: front-end
+        run: npm ci
+
+      # build 脚本为 "vue-tsc && vite build"，同时覆盖类型检查与打包
+      - name: 类型检查并构建
+        working-directory: front-end
+        run: npm run build
+
+  llm-service:
+    name: llm-service 冒烟
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: llm-service/requirements.txt
+
+      - name: 安装依赖
+        working-directory: llm-service
+        run: pip install -r requirements.txt
+
+      # 该目录暂无测试文件，用内联命令做最小验证：应用可导入、/health 返回 200 且响应体为 {"status": "ok"}
+      # 工作目录必须为 llm-service，否则 `from main import app` 无法解析
+      - name: 冒烟测试 /health
+        working-directory: llm-service
+        # 用块标量包裹：单行内容里含 `: `，直接写成 plain scalar 会被 YAML 误判为映射键
+        run: |
+          python -c "from fastapi.testclient import TestClient; from main import app; r = TestClient(app).get('/health'); assert r.status_code == 200, r.text; assert r.json() == {'status': 'ok'}, r.text; print('health OK')"

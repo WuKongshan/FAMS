@@ -1,4 +1,9 @@
-fastapi
-uvicorn
-httpx
-pydantic
+# 一级依赖：锁死版本，保证 CI 与本地装到的是同一套
+fastapi==0.165.0
+uvicorn==0.54.0
+httpx==0.29.0
+pydantic==2.14.4
+
+# 传递依赖同样固定：CI 的冒烟测试依赖 starlette.testclient，
+# 而它对 httpx 的兼容已被官方标记弃用，不锁版本会让冒烟在将来某次发版后无声变红
+starlette==1.10.0
