@@ -16,8 +16,13 @@ export function getCheckRecords(taskId: number) {
   return request.get(`/check/record/${taskId}`)
 }
 
+// 提交异步分析，立即返回 { jobId, status }，结果需轮询 getAnalyzeJob
 export function analyzeDiff(taskId: number) {
   return request.post(`/check/analyze/${taskId}`)
+}
+
+export function getAnalyzeJob(jobId: number) {
+  return request.get(`/check/analyze/job/${jobId}`)
 }
 
 export function confirmDiff(taskId: number, recordIds: number[]) {

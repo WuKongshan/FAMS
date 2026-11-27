@@ -83,7 +83,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
-import { getCheckRecords, saveCheckRecord, analyzeDiff, confirmDiff } from '@/api/check'
+import { getCheckRecords, saveCheckRecord, analyzeDiff, getAnalyzeJob, confirmDiff } from '@/api/check'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -135,15 +135,41 @@ function onCellChange(index: number) {
   }).catch(() => {})
 }
 
+// 轮询间隔与分析总等待上限。上限要略大于后端最坏耗时：
+// Python 侧单片 60s x 3 次尝试 + 退避约 183s，Java 读取超时 200s。
+const POLL_INTERVAL_MS = 1500
+const POLL_TIMEOUT_MS = 200000
+
+async function waitForAnalysis(jobId: number): Promise<any[]> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    const res = await getAnalyzeJob(jobId)
+    const job = res.data || {}
+    if (job.status === 'SUCCESS') {
+      return job.result || []
+    }
+    if (job.status === 'FAILED') {
+      throw new Error(job.error || '分析失败')
+    }
+  }
+  // 后端进程若在 RUNNING 期间被杀，任务会一直不回终态，这里兜住，不让按钮永远转圈
+  throw new Error('分析超时，请稍后重试')
+}
+
 async function handleAnalyze() {
   analyzing.value = true
   try {
     const res = await analyzeDiff(taskId)
-    diffResults.value = res.data || []
+    const jobId = res.data?.jobId
+    if (!jobId) {
+      throw new Error('提交分析失败')
+    }
+    diffResults.value = await waitForAnalysis(jobId)
     dialogVisible.value = true
     ElMessage.success('LLM 智能分析完成')
-  } catch {
-    ElMessage.error('分析失败，请重试')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '分析失败，请重试')
   } finally {
     analyzing.value = false
   }

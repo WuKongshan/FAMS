@@ -1,0 +1,30 @@
+# 常驻运行 llm-service：`docker compose up -d`
+#
+# 解决「重启机器后没人手敲 uvicorn，Java 静默降级成模板文案」的问题 ——
+# restart: unless-stopped 会让它在开机/Docker 重启后自动拉起。
+#
+# 端口只映射到 127.0.0.1：这个服务没有鉴权，绝不能暴露到 0.0.0.0。
+# API Key 由宿主环境变量注入，不写进镜像、不落盘。
+
+services:
+  llm-service:
+    build: .
+    image: fams-llm-service:latest
+    container_name: fams-llm-service
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

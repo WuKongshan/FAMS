@@ -5,6 +5,7 @@ import com.example.asset.common.result.R;
 import com.example.asset.common.utils.PageUtils;
 import com.example.asset.modules.check.entity.CheckRecord;
 import com.example.asset.modules.check.entity.CheckTask;
+import com.example.asset.modules.check.service.AnalysisJobService;
 import com.example.asset.modules.check.service.CheckService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,6 +22,7 @@ import java.util.Map;
 public class CheckController {
 
     private final CheckService checkService;
+    private final AnalysisJobService analysisJobService;
 
     @Operation(summary = "发布盘点任务")
     @OperationLog(module = "协同盘点", operation = "新增", description = "发布盘点任务")
@@ -52,11 +54,17 @@ public class CheckController {
         return R.ok(checkService.getRecordsByTaskId(taskId));
     }
 
-    @Operation(summary = "LLM智能分析盘点差异")
+    @Operation(summary = "提交差异分析（异步，立即返回 jobId）")
     @OperationLog(module = "协同盘点", operation = "分析", description = "LLM智能分析盘点差异")
     @PostMapping("/analyze/{taskId}")
     public R<?> analyzeDiff(@PathVariable Long taskId) {
-        return R.ok(checkService.analyzeDiff(taskId));
+        return R.ok(analysisJobService.submit(taskId));
+    }
+
+    @Operation(summary = "查询分析任务状态")
+    @GetMapping("/analyze/job/{jobId}")
+    public R<?> getAnalyzeJob(@PathVariable Long jobId) {
+        return R.ok(analysisJobService.getStatus(jobId));
     }
 
     @Operation(summary = "确认盘点结果（不修改资产台账）")

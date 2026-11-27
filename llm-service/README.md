@@ -57,6 +57,37 @@ $env:DEEPSEEK_API_KEY=""
 D:\Python\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
+### 3.1 用 Docker 常驻运行（推荐）
+
+```bat
+cd /d E:\FAMS\llm-service
+docker compose up -d
+```
+
+- `restart: unless-stopped`：开机 / Docker 重启后自动拉起，不用再手敲 uvicorn
+- `docker compose logs -f` 看日志，`docker compose down` 停止
+- 首次会构建镜像（约 200MB，只装运行依赖，不含 pytest）
+
+**关于 `0.0.0.0` 的一个必要区分**：容器内必须监听 `0.0.0.0` 才能被宿主访问，
+所以 `Dockerfile` 的 `CMD` 用的是 `--host 0.0.0.0`。对外暴露范围由 compose 的
+端口映射限制：
+
+```yaml
+ports:
+  - "127.0.0.1:8000:8000"   # 只有宿主回环能访问，局域网访问不到
+```
+
+**不要**把它改成 `"8000:8000"` 或 `"0.0.0.0:8000:8000"` —— 这个服务没有鉴权，
+一旦映射到所有网卡，同网段任何人都能调你的分析接口并消耗 API 额度。
+
+API Key 通过宿主环境变量注入（compose 里的 `${DEEPSEEK_API_KEY}`），
+**不写进镜像、不落盘**：
+
+```bat
+set DEEPSEEK_API_KEY=sk-xxxx
+docker compose up -d
+```
+
 ## 4. 自测
 
 ### 4.1 健康检查
