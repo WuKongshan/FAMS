@@ -21,13 +21,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("迁移脚本：真实 MySQL 结构")
 class MigrationIntegrationTest extends AbstractIntegrationTest {
 
-    private static final int EXPECTED_MIGRATION_COUNT = 12;
+    private static final int EXPECTED_MIGRATION_COUNT = 13;
 
     @Autowired
     private JdbcTemplate jdbc;
 
     @Test
-    @DisplayName("flyway_schema_history 恰好 12 条记录，全部成功，版本连续覆盖 1..12")
+    @DisplayName("flyway_schema_history 恰好 13 条记录，全部成功，版本连续覆盖 1..13")
     void flywayHistory_hasTwelveSuccessfulMigrations() {
         Integer total = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history", Integer.class);
@@ -41,7 +41,7 @@ class MigrationIntegrationTest extends AbstractIntegrationTest {
                 "SELECT version FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank",
                 String.class);
         assertThat(versions).containsExactly(
-                "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
+                "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
     }
 
     @Test

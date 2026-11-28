@@ -86,32 +86,38 @@
       </template>
     </el-dialog>
 
-    <!-- 待处置差异：只标记，不改台账 -->
-    <el-dialog title="待处置差异" v-model="pendingVisible" width="860px">
+    <!-- 差异处置：待处置 / 已处置 -->
+    <el-dialog title="盘点差异处置" v-model="pendingVisible" width="920px">
       <el-alert
         type="info"
         :closable="false"
         show-icon
-        title="此处只做标记，不会修改资产台账。盘亏请到「报废管理」提交报废单，盘盈到「资产台账」新增登记，由审批流生效。"
+        title="此处只做标记，不会修改资产台账。盘亏请到「报废管理」提交报废单、盘盈到「资产台账」新增登记，由审批流生效；处置后填关联单号作为凭证，误点可撤销。"
       />
-      <el-table :data="pendingDiffs" border stripe max-height="420" style="margin-top: 12px">
-        <el-table-column prop="assetCode" label="资产编号" width="130" />
-        <el-table-column prop="assetName" label="资产名称" min-width="150" />
-        <el-table-column label="差异" width="90">
+
+      <el-radio-group v-model="diffTab" style="margin: 14px 0">
+        <el-radio-button label="PENDING">待处置（{{ pendingDiffs.length }}）</el-radio-button>
+        <el-radio-button label="HANDLED">已处置（{{ handledDiffs.length }}）</el-radio-button>
+      </el-radio-group>
+
+      <el-table v-if="diffTab === 'PENDING'" :data="pendingDiffs" border stripe max-height="400">
+        <el-table-column prop="assetCode" label="资产编号" width="120" />
+        <el-table-column prop="assetName" label="资产名称" min-width="140" />
+        <el-table-column label="差异" width="80">
           <template #default="{ row }">
             <span :style="{ color: row.diffQuantity < 0 ? '#f56c6c' : '#67c23a' }">
               {{ row.diffQuantity > 0 ? '+' : '' }}{{ row.diffQuantity }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="结果" width="90">
+        <el-table-column label="结果" width="80">
           <template #default="{ row }">
             <el-tag :type="row.result === 'SURPLUS' ? 'success' : 'danger'" size="small">
               {{ row.result === 'SURPLUS' ? '盘盈' : '盘亏' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="处置方式" width="170">
+        <el-table-column label="处置方式" width="150">
           <template #default="{ row }">
             <el-select v-model="handleTypes[row.id]" size="small" placeholder="选择方式">
               <el-option label="转报废单" value="SCRAP" />
@@ -120,7 +126,16 @@
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120">
+        <el-table-column label="关联单号" width="170">
+          <template #default="{ row }">
+            <el-input
+              v-model="handleRefs[row.id]"
+              size="small"
+              :placeholder="handleTypes[row.id] === 'MANUAL' ? '可不填' : '报废单号/资产编号'"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="110">
           <template #default="{ row }">
             <el-button
               size="small"
@@ -130,10 +145,45 @@
             >标记已处置</el-button>
           </template>
         </el-table-column>
-        <template #empty>
-          <span>该任务没有待处置差异</span>
-        </template>
+        <template #empty><span>该任务没有待处置差异</span></template>
       </el-table>
+
+      <el-table v-else :data="handledDiffs" border stripe max-height="400">
+        <el-table-column prop="assetCode" label="资产编号" width="120" />
+        <el-table-column prop="assetName" label="资产名称" min-width="140" />
+        <el-table-column label="结果" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.result === 'SURPLUS' ? 'success' : 'danger'" size="small">
+              {{ row.result === 'SURPLUS' ? '盘盈' : '盘亏' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="处置方式" width="120">
+          <template #default="{ row }">{{ handleTypeText(row.diffHandleType) }}</template>
+        </el-table-column>
+        <el-table-column label="关联单号" width="150">
+          <template #default="{ row }">
+            <span v-if="row.diffHandleRef">{{ row.diffHandleRef }}</span>
+            <el-tag v-else type="warning" size="small">未填</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="处置时间" width="160">
+          <template #default="{ row }">{{ formatTime(row.diffHandleTime) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="100">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              :loading="revokingId === row.id"
+              @click="doRevoke(row)"
+            >撤销</el-button>
+          </template>
+        </el-table-column>
+        <template #empty><span>还没有已处置的差异</span></template>
+      </el-table>
+
       <template #footer>
         <el-button @click="pendingVisible = false">关闭</el-button>
       </template>
@@ -146,7 +196,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
-import { getCheckRecords, saveCheckRecord, analyzeDiff, getAnalyzeJob, confirmDiff, listPendingDiffs, handleDiff } from '@/api/check'
+import { getCheckRecords, saveCheckRecord, analyzeDiff, getAnalyzeJob, confirmDiff, listPendingDiffs, listHandledDiffs, handleDiff, revokeDiff } from '@/api/check'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -156,11 +206,15 @@ const records = ref<any[]>([])
 const dialogVisible = ref(false)
 // 本次分析是否走了模板兜底（后端 engine=rule）
 const analysisDegraded = ref(false)
-// 待处置差异
+// 待处置 / 已处置
 const pendingVisible = ref(false)
+const diffTab = ref<'PENDING' | 'HANDLED'>('PENDING')
 const pendingDiffs = ref<any[]>([])
+const handledDiffs = ref<any[]>([])
 const handleTypes = ref<Record<number, string>>({})
+const handleRefs = ref<Record<number, string>>({})
 const handlingId = ref<number | null>(null)
+const revokingId = ref<number | null>(null)
 const analyzing = ref(false)
 const diffResults = ref<any[]>([])
 
@@ -251,14 +305,39 @@ async function handleAnalyze() {
   }
 }
 
+const HANDLE_TYPE_TEXT: Record<string, string> = {
+  SCRAP: '转报废单',
+  ASSET_ADD: '补登记',
+  MANUAL: '人工确认'
+}
+
+function handleTypeText(type?: string): string {
+  return type ? (HANDLE_TYPE_TEXT[type] || type) : '-'
+}
+
+function formatTime(value?: string): string {
+  if (!value) return '-'
+  return value.replace('T', ' ').slice(0, 16)
+}
+
+async function loadDiffs() {
+  const [pending, handled] = await Promise.all([
+    listPendingDiffs(taskId),
+    listHandledDiffs(taskId)
+  ])
+  pendingDiffs.value = pending.data || []
+  handledDiffs.value = handled.data || []
+}
+
 async function openPendingDiffs() {
+  diffTab.value = 'PENDING'
+  handleTypes.value = {}
+  handleRefs.value = {}
   try {
-    const res = await listPendingDiffs(taskId)
-    pendingDiffs.value = res.data || []
-    handleTypes.value = {}
+    await loadDiffs()
     pendingVisible.value = true
   } catch {
-    ElMessage.error('加载待处置差异失败')
+    ElMessage.error('加载差异数据失败')
   }
 }
 
@@ -268,15 +347,33 @@ async function doHandle(row: any) {
     ElMessage.warning('请先选择处置方式')
     return
   }
+  const refNo = (handleRefs.value[row.id] || '').trim()
+  // 转报废/补登记如果没填单号，提示但不阻断 —— 强制必填会把"先标记后补单"的流程卡死
+  if (!refNo && type !== 'MANUAL') {
+    ElMessage.warning('建议填写关联单号，作为「确实处理过」的凭证')
+  }
   handlingId.value = row.id
   try {
-    await handleDiff(row.id, type)
+    await handleDiff(row.id, type, refNo || undefined)
     ElMessage.success('已标记处置')
-    pendingDiffs.value = pendingDiffs.value.filter(d => d.id !== row.id)
+    await loadDiffs()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '标记失败，请重试')
   } finally {
     handlingId.value = null
+  }
+}
+
+async function doRevoke(row: any) {
+  revokingId.value = row.id
+  try {
+    await revokeDiff(row.id)
+    ElMessage.success('已撤销处置，该差异回到待处置')
+    await loadDiffs()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '撤销失败，请重试')
+  } finally {
+    revokingId.value = null
   }
 }
 

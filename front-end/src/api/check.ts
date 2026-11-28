@@ -30,8 +30,20 @@ export function listPendingDiffs(taskId?: number) {
   return request.get('/check/diff/pending', { params: taskId ? { taskId } : {} })
 }
 
-export function handleDiff(recordId: number, handleType: string) {
-  return request.post(`/check/diff/${recordId}/handle`, null, { params: { handleType } })
+// 已处置差异：用于回看谁、何时、什么方式、关联哪张单
+export function listHandledDiffs(taskId?: number) {
+  return request.get('/check/diff/handled', { params: taskId ? { taskId } : {} })
+}
+
+// refNo 为关联单据号（报废单号 / 新资产编号），人工确认时可空
+export function handleDiff(recordId: number, handleType: string, refNo?: string) {
+  return request.post(`/check/diff/${recordId}/handle`, null, {
+    params: refNo ? { handleType, refNo } : { handleType }
+  })
+}
+
+export function revokeDiff(recordId: number) {
+  return request.post(`/check/diff/${recordId}/revoke`)
 }
 
 export function confirmDiff(taskId: number, recordIds: number[]) {

@@ -95,7 +95,7 @@ class CheckDiffHandleIntegrationTest extends AbstractIntegrationTest {
         Map<String, Object> assetBefore = jdbc.queryForMap(
                 "SELECT * FROM asset_info WHERE id = ?", assetId);
 
-        checkService.handleDiff(shortageRecordId, "SCRAP");
+        checkService.handleDiff(shortageRecordId, "SCRAP", null);
 
         CheckRecord record = checkRecordMapper.selectById(shortageRecordId);
         assertThat(record.getDiffHandleStatus()).isEqualTo(CheckServiceImpl.DIFF_HANDLED);
@@ -114,7 +114,7 @@ class CheckDiffHandleIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("重复处置幂等：不报错，且不覆盖首次的处置方式与时间")
     void handleDiff_isIdempotent() {
-        checkService.handleDiff(handledRecordId, "MANUAL");
+        checkService.handleDiff(handledRecordId, "MANUAL", null);
 
         CheckRecord record = checkRecordMapper.selectById(handledRecordId);
         assertThat(record.getDiffHandleStatus()).isEqualTo(CheckServiceImpl.DIFF_HANDLED);
@@ -127,9 +127,65 @@ class CheckDiffHandleIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("处置写入关联单号：真实列落库，前后空白被清掉")
+    void handleDiff_persistsRefNo() {
+        checkService.handleDiff(shortageRecordId, "SCRAP", "  废2026-0031  ");
+
+        CheckRecord record = checkRecordMapper.selectById(shortageRecordId);
+        assertThat(record.getDiffHandleRef()).isEqualTo("废2026-0031");
+
+        String raw = jdbc.queryForObject(
+                "SELECT diff_handle_ref FROM check_record WHERE id = ?", String.class, shortageRecordId);
+        assertThat(raw).as("库里的值不该带空白").isEqualTo("废2026-0031");
+    }
+
+    @Test
+    @DisplayName("撤销处置：五个处置字段在真实库里全部被清空")
+    void revokeDiff_clearsAllHandleFieldsInDb() {
+        checkService.handleDiff(shortageRecordId, "SCRAP", "废2026-0031");
+        assertThat(checkRecordMapper.selectById(shortageRecordId).getDiffHandleStatus())
+                .isEqualTo(CheckServiceImpl.DIFF_HANDLED);
+
+        checkService.revokeDiff(shortageRecordId);
+
+        // 直接查库而不是查实体：目的是验证 SET 子句真的把列写成了 NULL。
+        // 若用实体更新（NOT_NULL 策略），null 字段不会进 SET，这里会残留旧值 —— 正是本用例要抓的。
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT diff_handle_status, diff_handle_type, diff_handle_ref, diff_handle_time, diff_handle_by "
+                        + "FROM check_record WHERE id = ?", shortageRecordId);
+
+        assertThat(row.get("diff_handle_status")).isEqualTo(CheckServiceImpl.DIFF_PENDING);
+        assertThat(row.get("diff_handle_type")).as("撤销后不得残留处置方式").isNull();
+        assertThat(row.get("diff_handle_ref")).as("撤销后不得残留关联单号").isNull();
+        assertThat(row.get("diff_handle_time")).as("撤销后不得残留处置时间").isNull();
+        assertThat(row.get("diff_handle_by")).as("撤销后不得残留处置人").isNull();
+
+        // 撤销后必须重新出现在待处置列表里，否则差异还是"消失"状态
+        assertThat(checkService.listPendingDiffs(taskId))
+                .extracting(CheckRecord::getId)
+                .contains(shortageRecordId);
+        assertThat(checkService.listHandledDiffs(taskId))
+                .extracting(CheckRecord::getId)
+                .doesNotContain(shortageRecordId);
+    }
+
+    @Test
+    @DisplayName("已处置列表：撤销后从列表消失，处置时出现在列表里")
+    void listHandledDiffs_tracksRevoke() {
+        checkService.handleDiff(shortageRecordId, "MANUAL", null);
+        assertThat(checkService.listHandledDiffs(taskId))
+                .extracting(CheckRecord::getId)
+                .contains(shortageRecordId);
+
+        checkService.revokeDiff(shortageRecordId);
+        assertThat(checkService.listHandledDiffs(taskId))
+                .extracting(CheckRecord::getId)
+                .doesNotContain(shortageRecordId);
+    }
+
+    @Test
     @DisplayName("非法处置方式：抛 BusinessException 且不落库")
-    void handleDiff_rejectsUnknownType() {
-        assertThatThrownBy(() -> checkService.handleDiff(shortageRecordId, "DELETE_ASSET"))
+    void handleDiff_rejectsUnknownType() {        assertThatThrownBy(() -> checkService.handleDiff(shortageRecordId, "DELETE_ASSET", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("处置方式不合法");
 
@@ -141,7 +197,7 @@ class CheckDiffHandleIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("相符记录不接受处置：抛 BusinessException 且不落库")
     void handleDiff_rejectsMatchRecord() {
-        assertThatThrownBy(() -> checkService.handleDiff(matchRecordId, "MANUAL"))
+        assertThatThrownBy(() -> checkService.handleDiff(matchRecordId, "MANUAL", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("账实相符");
 

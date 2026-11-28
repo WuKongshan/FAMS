@@ -3,6 +3,7 @@ package com.example.asset.modules.check.service.impl;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.asset.common.exception.BusinessException;
@@ -302,7 +303,7 @@ public class CheckServiceImpl implements CheckService {
     }
 
     @Override
-    public void handleDiff(Long recordId, String handleType) {
+    public void handleDiff(Long recordId, String handleType, String refNo) {
         if (!HANDLE_TYPES.contains(handleType)) {
             throw new BusinessException("处置方式不合法，可选：" + String.join(" / ", HANDLE_TYPES));
         }
@@ -315,8 +316,18 @@ public class CheckServiceImpl implements CheckService {
             throw new BusinessException("该记录账实相符，无需处置");
         }
         if (DIFF_HANDLED.equals(record.getDiffHandleStatus())) {
-            // 幂等：重复点击不报错，也不覆盖首次的处置人与时间
-            log.info("差异记录 {} 已处置过，忽略重复请求", recordId);
+            // 幂等：重复点击不报错，也不覆盖首次的处置人与时间。
+            // 但允许补填关联单号 —— 常见于"先标记、后拿到单号"的操作顺序。
+            String trimmed = StrUtil.trimToNull(refNo);
+            if (trimmed != null && !trimmed.equals(record.getDiffHandleRef())) {
+                checkRecordMapper.update(null, new LambdaUpdateWrapper<CheckRecord>()
+                        .eq(CheckRecord::getId, recordId)
+                        .set(CheckRecord::getDiffHandleRef, trimmed)
+                        .set(CheckRecord::getUpdateTime, LocalDateTime.now()));
+                log.info("差异记录 {} 已处置，补填关联单号 {}", recordId, trimmed);
+            } else {
+                log.info("差异记录 {} 已处置过，忽略重复请求", recordId);
+            }
             return;
         }
 
@@ -324,11 +335,46 @@ public class CheckServiceImpl implements CheckService {
         update.setId(recordId);
         update.setDiffHandleStatus(DIFF_HANDLED);
         update.setDiffHandleType(handleType);
+        update.setDiffHandleRef(StrUtil.trimToNull(refNo));
         update.setDiffHandleTime(LocalDateTime.now());
         update.setDiffHandleBy(SecurityUtils.getCurrentUserId());
         checkRecordMapper.updateById(update);
 
-        log.info("差异记录 {} 已处置, 方式: {}", recordId, handleType);
+        log.info("差异记录 {} 已处置, 方式: {}, 关联单号: {}", recordId, handleType, update.getDiffHandleRef());
+    }
+
+    @Override
+    public List<CheckRecord> listHandledDiffs(Long taskId) {
+        LambdaQueryWrapper<CheckRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(CheckRecord::getDiffHandleStatus, DIFF_HANDLED)
+                .eq(taskId != null, CheckRecord::getTaskId, taskId)
+                .orderByDesc(CheckRecord::getDiffHandleTime)
+                .orderByDesc(CheckRecord::getId);
+        return checkRecordMapper.selectList(wrapper);
+    }
+
+    @Override
+    public void revokeDiff(Long recordId) {
+        CheckRecord record = checkRecordMapper.selectById(recordId);
+        if (record == null) {
+            throw new BusinessException("盘点记录不存在");
+        }
+        if (!DIFF_HANDLED.equals(record.getDiffHandleStatus())) {
+            throw new BusinessException("该差异当前不是已处置状态，无需撤销");
+        }
+
+        // 必须用 UpdateWrapper 显式 set null：实体更新走的是 NOT_NULL 策略，
+        // 把字段置 null 根本不会进 SET 子句，撤销后会残留上一次的处置方式与单号。
+        checkRecordMapper.update(null, new LambdaUpdateWrapper<CheckRecord>()
+                .eq(CheckRecord::getId, recordId)
+                .set(CheckRecord::getDiffHandleStatus, DIFF_PENDING)
+                .set(CheckRecord::getDiffHandleType, null)
+                .set(CheckRecord::getDiffHandleRef, null)
+                .set(CheckRecord::getDiffHandleTime, null)
+                .set(CheckRecord::getDiffHandleBy, null)
+                .set(CheckRecord::getUpdateTime, LocalDateTime.now()));
+
+        log.info("差异记录 {} 已撤销处置，退回待处置", recordId);
     }
 
     /**

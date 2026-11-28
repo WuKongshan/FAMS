@@ -38,13 +38,25 @@ public interface CheckService {
     List<CheckRecord> listPendingDiffs(Long taskId);
 
     /**
+     * 已处置的差异记录（可按任务过滤），用于回看"谁、何时、什么方式、关联哪张单"。
+     */
+    List<CheckRecord> listHandledDiffs(Long taskId);
+
+    /**
      * 标记一条差异为已处置。
      * <p>只是打标签，不直接改资产状态 —— 资产变更仍走报废/新增审批。
      * 重复处置幂等，不覆盖首次的处置人与时间。</p>
      *
      * @param handleType SCRAP=转报废 ASSET_ADD=补登记 MANUAL=人工确认
+     * @param refNo      关联单据号（报废单号 / 新资产编号），可空；人工确认通常没有
      */
-    void handleDiff(Long recordId, String handleType);
+    void handleDiff(Long recordId, String handleType, String refNo);
+
+    /**
+     * 撤销处置，退回待处置。
+     * <p>用于误点。会清空处置方式、时间、处置人与关联单号，避免留下"半截"记录。</p>
+     */
+    void revokeDiff(Long recordId);
 
     /**
      * 确认盘点结果。

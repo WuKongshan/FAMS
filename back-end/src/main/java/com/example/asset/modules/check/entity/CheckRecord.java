@@ -57,6 +57,9 @@ public class CheckRecord extends BaseEntity {
     /** 处置方式：SCRAP=转报废 ASSET_ADD=补登记 MANUAL=人工确认 */
     private String diffHandleType;
 
+    /** 关联单据号：报废单号 / 新资产编号，作为"确实处理过"的凭证；人工确认可空 */
+    private String diffHandleRef;
+
     /** 处置时间 */
     private LocalDateTime diffHandleTime;
 

@@ -24,8 +24,47 @@
 
     <div class="table-actions">
       <h3>盘点任务管理</h3>
-      <el-button type="primary" @click="openCreateDialog">发布盘点任务</el-button>
+      <div>
+        <el-button type="danger" plain @click="openGlobalDiffs">
+          全系统待处置差异{{ globalPendingCount > 0 ? `（${globalPendingCount}）` : '' }}
+        </el-button>
+        <el-button type="primary" @click="openCreateDialog">发布盘点任务</el-button>
+      </div>
     </div>
+
+    <!-- 全局待处置视图：管理视角，只看不处置（处置要到具体任务里做） -->
+    <el-dialog title="全系统待处置差异" v-model="globalDiffVisible" width="880px">
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="这里汇总所有盘点任务中尚未处置的差异。处置操作请进入对应任务页进行，本页只做全局清点。"
+      />
+      <el-table :data="globalDiffs" border stripe max-height="420" style="margin-top: 12px">
+        <el-table-column prop="taskId" label="盘点任务ID" width="110" />
+        <el-table-column prop="assetCode" label="资产编号" width="130" />
+        <el-table-column prop="assetName" label="资产名称" min-width="160" />
+        <el-table-column label="差异" width="80">
+          <template #default="{ row }">
+            <span :style="{ color: row.diffQuantity < 0 ? '#f56c6c' : '#67c23a' }">
+              {{ row.diffQuantity > 0 ? '+' : '' }}{{ row.diffQuantity }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="结果" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.result === 'SURPLUS' ? 'success' : 'danger'" size="small">
+              {{ row.result === 'SURPLUS' ? '盘盈' : '盘亏' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="checkerName" label="盘点人" width="110" />
+        <template #empty><span>所有差异都已处置</span></template>
+      </el-table>
+      <template #footer>
+        <el-button @click="globalDiffVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <el-table :data="tableData" border stripe v-loading="loading">
       <el-table-column prop="taskNo" label="任务编号" width="140" />
@@ -129,11 +168,32 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getCheckTaskPage, createCheckTask, analyzeDiff } from '@/api/check'
+import { getCheckTaskPage, createCheckTask, analyzeDiff, listPendingDiffs } from '@/api/check'
 import { getDepartments, getUsers } from '@/api/admin'
 
 const router = useRouter()
 const loading = ref(false)
+
+// 全局待处置差异
+const globalDiffVisible = ref(false)
+const globalDiffs = ref<any[]>([])
+const globalPendingCount = ref(0)
+
+async function loadGlobalPending() {
+  try {
+    const res = await listPendingDiffs()
+    globalDiffs.value = res.data || []
+    globalPendingCount.value = globalDiffs.value.length
+  } catch {
+    // 顶部计数失败不该打断任务列表，静默即可
+    globalPendingCount.value = 0
+  }
+}
+
+async function openGlobalDiffs() {
+  await loadGlobalPending()
+  globalDiffVisible.value = true
+}
 const tableData = ref<any[]>([])
 const total = ref(0)
 const dialogVisible = ref(false)
@@ -256,5 +316,6 @@ onMounted(() => {
   fetchData()
   fetchStats()
   fetchDropdownOptions()
+  loadGlobalPending()
 })
 </script>

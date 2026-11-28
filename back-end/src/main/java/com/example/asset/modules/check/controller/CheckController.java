@@ -73,13 +73,28 @@ public class CheckController {
         return R.ok(checkService.listPendingDiffs(taskId));
     }
 
+    @Operation(summary = "已处置的差异记录")
+    @GetMapping("/diff/handled")
+    public R<?> listHandledDiffs(@RequestParam(required = false) Long taskId) {
+        return R.ok(checkService.listHandledDiffs(taskId));
+    }
+
     @Operation(summary = "标记差异已处置")
     @OperationLog(module = "协同盘点", operation = "处置差异", description = "标记盘点差异为已处置")
     @PostMapping("/diff/{recordId}/handle")
     public R<?> handleDiff(@PathVariable Long recordId,
-                           @RequestParam String handleType) {
-        checkService.handleDiff(recordId, handleType);
+                           @RequestParam String handleType,
+                           @RequestParam(required = false) String refNo) {
+        checkService.handleDiff(recordId, handleType, refNo);
         return R.ok("已标记处置");
+    }
+
+    @Operation(summary = "撤销差异处置")
+    @OperationLog(module = "协同盘点", operation = "撤销处置", description = "撤销盘点差异处置，退回待处置")
+    @PostMapping("/diff/{recordId}/revoke")
+    public R<?> revokeDiff(@PathVariable Long recordId) {
+        checkService.revokeDiff(recordId);
+        return R.ok("已撤销处置");
     }
 
     @Operation(summary = "确认盘点结果（不修改资产台账）")
