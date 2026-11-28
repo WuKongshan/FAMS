@@ -1,13 +1,15 @@
 # FAMS 持续集成流水线
 #
 # 三个相互独立的 job，任何一个失败都说明主分支不可用：
-#   1. backend      —— Java 17 + Maven，跑 back-end 全部单元测试（纯 Mockito，不加载 Spring 上下文、
-#                      不需要 MySQL / Redis，也不读取任何 .env 或 secret）
+#   1. backend      —— Java 17 + Maven，跑后端单元测试与集成测试。集成测试用 Testcontainers
+#                      拉起真实 mysql:8.0（验证 Flyway 迁移、唯一索引、条件更新的原子性），
+#                      因此需要 runner 上有可用的 Docker（ubuntu-latest 自带）
 #   2. frontend     —— Node 22 + npm ci，执行 vue-tsc 类型检查与 vite 生产构建
 #   3. llm-service  —— Python 3.13 + pip，跑 pytest 单元测试
 #                      （解析容错 / 分片 / 重试 / 降级 / HTTP 契约）
 #
-# 设计约束：不配置 secrets、不起数据库 service 容器、不缓存本地 .env，保证 fork 与 PR 都能直接跑通。
+# 设计约束：不配置 secrets、不起数据库 service 容器（MySQL 由 Testcontainers 按需拉起）、
+# 不读取也不缓存本地 .env，保证 fork 与 PR 都能直接跑通。
 
 name: CI
 
@@ -43,8 +45,9 @@ jobs:
           cache: maven
           cache-dependency-path: back-end/pom.xml
 
-      # 不加 -o / --offline：CI runner 上没有本地仓库，必须联网拉取依赖
-      - name: 执行单元测试
+      # 不加 -o / --offline：CI runner 上没有本地仓库，必须联网拉取依赖。
+      # 集成测试会通过 Testcontainers 启动 mysql:8.0 容器（Ryuk 结束时自动清理）。
+      - name: 执行测试（单元 + 集成）
         working-directory: back-end
         run: mvn -B -ntp test
 
