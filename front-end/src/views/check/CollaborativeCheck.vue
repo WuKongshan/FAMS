@@ -92,7 +92,7 @@
         type="info"
         :closable="false"
         show-icon
-        title="此处只做标记，不会修改资产台账。盘亏请到「报废管理」提交报废单、盘盈到「资产台账」新增登记，由审批流生效；处置后填关联单号作为凭证，误点可撤销。"
+        title="此处只做标记，不会修改资产台账。先选处置方式，点「去处理」会跳到报废管理或资产台账并自动带上资产信息；办完回来填关联单号再标记已处置。误点可撤销。"
       />
 
       <el-radio-group v-model="diffTab" style="margin: 14px 0">
@@ -135,8 +135,9 @@
             />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110">
+        <el-table-column label="操作" width="200">
           <template #default="{ row }">
+            <el-button size="small" link type="primary" @click="goHandle(row)">去处理</el-button>
             <el-button
               size="small"
               type="primary"
@@ -193,14 +194,15 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { getCheckRecords, saveCheckRecord, analyzeDiff, getAnalyzeJob, confirmDiff, listPendingDiffs, listHandledDiffs, handleDiff, revokeDiff } from '@/api/check'
 import { pollAnalysisJob, type AnalysisJobView } from '@/composables/useAnalysisPolling'
-import { handleTypeText, formatTime } from '@/utils/checkDiff'
+import { handleTypeText, formatTime, buildHandleTarget } from '@/utils/checkDiff'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 const taskId = Number(route.params.id)
 const taskName = ref('盘点任务')
@@ -331,6 +333,17 @@ async function doHandle(row: any) {
   } finally {
     handlingId.value = null
   }
+}
+
+// 跳到实际处置页面：报废管理 / 资产台账，并把资产信息带上预填
+function goHandle(row: any) {
+  const target = buildHandleTarget(handleTypes.value[row.id], row)
+  if (target.kind === 'message') {
+    if (target.level === 'warning') ElMessage.warning(target.text)
+    else ElMessage.info(target.text)
+    return
+  }
+  router.push({ path: target.path, query: target.query })
 }
 
 async function doRevoke(row: any) {

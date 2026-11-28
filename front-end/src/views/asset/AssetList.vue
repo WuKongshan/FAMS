@@ -167,6 +167,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getAssetPage, addAsset, updateAsset, deleteAsset, exportAssets, getCategories, type AssetQuery } from '@/api/asset'
 import { getDepartments } from '@/api/admin'
@@ -175,6 +176,7 @@ const loading = ref(false)
 const tableData = ref<any[]>([])
 const total = ref(0)
 const dialogVisible = ref(false)
+const route = useRoute()
 const isEdit = ref(false)
 const formRef = ref()
 
@@ -339,5 +341,11 @@ onMounted(() => {
   fetchStats()
   loadDepartments()
   loadCategories()
+  // 从盘点差异页「去处理」跳过来时预填新增表单（盘盈需要补登记一条新资产）
+  if (route.query.create === '1') {
+    openDialog()
+    if (typeof route.query.assetCode === 'string') form.assetCode = route.query.assetCode
+    if (typeof route.query.assetName === 'string') form.assetName = route.query.assetName
+  }
 })
 </script>

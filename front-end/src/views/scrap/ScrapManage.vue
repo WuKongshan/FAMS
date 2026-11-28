@@ -140,12 +140,14 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { getScrapPage, submitScrap, approveScrap, getScrapDetail } from '@/api/scrap'
 import { getAssetPage } from '@/api/asset'
 
 const userStore = useUserStore()
+const route = useRoute()
 const loading = ref(false)
 const tableData = ref<any[]>([])
 const total = ref(0)
@@ -285,5 +287,12 @@ const completeStepStatus = computed(() => stepStatusMap[detailOrder.value.status
 onMounted(() => {
   fetchData()
   fetchStats()
+  // 从盘点差异页「去处理」跳过来时带上 assetCode，直接开框并自动填充资产名称
+  const assetCode = route.query.assetCode
+  if (typeof assetCode === 'string' && assetCode) {
+    openScrapDialog()
+    form.assetCode = assetCode
+    lookupAsset()
+  }
 })
 </script>
