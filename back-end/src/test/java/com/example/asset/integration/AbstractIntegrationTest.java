@@ -43,11 +43,15 @@ public abstract class AbstractIntegrationTest {
                     .withPassword("fams");
 
     static {
-        // Testcontainers 1.19.3 内置的 Docker 客户端默认按 API v1.32 发请求，
-        // 而 Docker Engine 29 把最低可接受版本提到了 1.40，直接拒绝（HTTP 400），
-        // 表现为误导性的 "Could not find a valid Docker environment"。
+        // Testcontainers 内置的 docker-java 固定按 API v1.32 发请求，而新版 Docker Engine
+        // 已把最低可接受版本抬到 1.40，直接拒绝（HTTP 400），但对外表现是误导性的
+        // "Could not find a valid Docker environment"，很难联想到是版本协商问题。
         // 1.41 是兼容区间最宽的选择：Docker 20.10（最高 1.41）到 29（最低 1.40）都接受。
-        // docker-java 的优先级是「系统属性 api.version > 环境变量 DOCKER_API_VERSION」，
+        //
+        // 已验证：升级 Testcontainers 到 1.20.6 并不能消除此问题，仍然需要这段补丁，
+        // 所以停在 Boot BOM 管理的 1.19.3，不额外覆盖版本。
+        //
+        // docker-java 的取值优先级是「系统属性 api.version > 环境变量 DOCKER_API_VERSION」，
         // 因此两者任一显式配置都必须尊重，不能静默覆盖 CI 上设好的值。
         if (System.getProperty("api.version") == null
                 && System.getenv("DOCKER_API_VERSION") == null) {
