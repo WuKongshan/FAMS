@@ -56,6 +56,10 @@
 
 **前端**：Vue 3.4 · TypeScript 5.3 · Vite 5 · Element Plus 2.4 · Pinia 2.1 · Vue Router 4.2 · ECharts 5.4
 
+**分析服务**：Python 3.13 · FastAPI · httpx · DeepSeek（`deepseek-chat`），以 Docker 常驻
+
+**质量保障**：JUnit 5 + Mockito + Testcontainers（真 MySQL 8）· Vitest · pytest · GitHub Actions
+
 ---
 
 ## 快速开始
@@ -64,8 +68,9 @@
 
 - JDK 17+
 - Maven 3.8+
-- Node.js 18+
+- Node.js 18+（CI 使用 22）
 - MySQL 8.x（本地或可访问的实例）
+- Docker 20.10+（启动「智能分析」服务；后端集成测试也依赖它）
 
 ### 1. 创建数据库
 
@@ -75,7 +80,7 @@ Flyway 会自动建表，但**不会自动创建数据库**，需先手动建库
 CREATE DATABASE asset_management DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 ```
 
-首次启动时 Flyway 会依次执行 `V1 ~ V8` 迁移脚本，Flowable 也会自动创建 `ACT_*` 引擎表。
+首次启动时 Flyway 会依次执行 `V1 ~ V13` 迁移脚本，Flowable 也会自动创建 `ACT_*` 引擎表。
 
 ### 2. 配置环境变量
 
@@ -130,6 +135,34 @@ npm run dev
 
 访问 http://localhost:5173 。开发服务器已配置代理，`/api` 转发到 `http://localhost:9090`。
 
+### 5. 启动智能分析服务（可选）
+
+「智能分析」由独立的 Python 服务提供，可以跳过这一步 —— 跳过时功能仍然可用，
+只是结论由规则模板生成，前端会明确提示「未使用 AI」。
+
+```bash
+cd llm-service
+docker compose up -d
+```
+
+服务只监听 `127.0.0.1:8000`（对外暴露范围由端口映射限制，**这个服务没有鉴权，
+不要把端口改成 `8000:8000`**）。API Key 通过宿主环境变量注入：
+
+```powershell
+$env:DEEPSEEK_API_KEY = "sk-..."
+docker compose up -d
+```
+
+`restart: unless-stopped`，机器重启后会自动拉起，不需要每次手动起。
+
+### 6. 跑测试
+
+```bash
+mvn -f back-end/pom.xml test        # 59 个（集成测试需 Docker）
+cd front-end && npm run test        # 32 个
+cd llm-service && python -m pytest -q   # 26 个
+```
+
 ### 演示账号
 
 初始化脚本会写入以下账号，密码均为 `123456`：
@@ -164,14 +197,23 @@ FAMS/
 │   │       └── statistics/          # 统计接口
 │   └── src/main/resources/
 │       ├── application.yml          # 配置（凭据全部走环境变量）
-│       ├── db/migration/            # Flyway 迁移脚本 V1 ~ V8
+│       ├── db/migration/            # Flyway 迁移脚本 V1 ~ V13
 │       └── processes/               # BPMN 流程定义
-└── front-end/
-    └── src/
-        ├── api/                     # 接口封装
-        ├── views/                   # 页面（按业务模块分目录）
-        ├── stores/                  # Pinia
-        └── router/
+├── back-end/src/test/               # 单测（Mockito）+ 集成测试（Testcontainers）
+├── front-end/
+│   └── src/
+│       ├── api/                     # 接口封装
+│       ├── composables/             # 可复用逻辑（分析任务轮询）
+│       ├── utils/                   # 纯函数（格式化、跳转判定）
+│       ├── views/                   # 页面（按业务模块分目录）
+│       ├── stores/                  # Pinia
+│       └── router/                  # 路由 + 守卫（guard.ts 为纯函数，可单测）
+├── llm-service/                     # 盘点差异分析服务（FastAPI）
+│   ├── app/                         # 路由 / 服务 / prompt / 解析
+│   ├── tests/                        # pytest 用例
+│   ├── Dockerfile / docker-compose.yml
+│   └── README.md                    # 该服务的接口与分层说明
+└── docs/                            # 运行手册与 Flowable 接入教程
 ```
 
 ---
@@ -191,11 +233,17 @@ FAMS/
 | V4 / V5 / V6 | 审批、维修的部门字段与历史数据回填 |
 | V7 | `apply_order.process_instance_id` |
 | V8 | `scrap_order.process_instance_id` |
+| V9 | `asset_info.pending_order_id`（资产占位，防重复申请） |
+| V10 | `check_record (task_id, asset_id)` 唯一索引（防并发重复填报） |
+| V11 | `analysis_job` 分析任务表（异步分析的状态载体） |
+| V12 | 差异处置状态 + 分析结果来源标记 |
+| V13 | 差异处置的关联单号 |
 
 ---
 
 ## 设计文档
 
+- [运行手册：启动、测试、常见故障排查](docs/运行手册.md)
 - [把「申请单审批」接入 Flowable —— 改造教程](docs/Flowable审批流程接入教程.md)
 - [把「报废审批」接入 Flowable —— 改造教程](docs/Flowable报废流程接入教程.md)
 
@@ -203,3 +251,5 @@ FAMS/
 
 - 本项目为学习与教学演示用途，未附开源许可证。
 - 前端开发服务器配置了 `host: '0.0.0.0'` 与 `allowedHosts: true`，方便局域网调试；部署到公网前请改为具体域名。
+- 本仓库有两个互不相关的历史分支：`master`（Gitee，完整开发历史）与 `public`（GitHub，干净快照）。
+  **不要把 `master` 推到 GitHub** —— 初始提交里含旧版明文凭据。推送方式见运行手册 §7。
