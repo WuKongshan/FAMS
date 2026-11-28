@@ -197,6 +197,8 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { getCheckRecords, saveCheckRecord, analyzeDiff, getAnalyzeJob, confirmDiff, listPendingDiffs, listHandledDiffs, handleDiff, revokeDiff } from '@/api/check'
+import { pollAnalysisJob, type AnalysisJobView } from '@/composables/useAnalysisPolling'
+import { handleTypeText, formatTime } from '@/utils/checkDiff'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -259,25 +261,6 @@ function onCellChange(index: number) {
   }).catch(() => {})
 }
 
-// 轮询间隔与分析总等待上限。上限要略大于后端最坏耗时：
-// Python 侧单片 60s x 3 次尝试 + 退避约 183s，Java 读取超时 200s。
-const POLL_INTERVAL_MS = 1500
-const POLL_TIMEOUT_MS = 200000
-
-async function waitForAnalysis(jobId: number): Promise<any> {
-  const startedAt = Date.now()
-  while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
-    const res = await getAnalyzeJob(jobId)
-    const job = res.data || {}
-    if (job.status === 'SUCCESS' || job.status === 'FAILED') {
-      return job
-    }
-  }
-  // 后端进程若在 RUNNING 期间被杀，任务会一直不回终态，这里兜住，不让按钮永远转圈
-  throw new Error('分析超时，请稍后重试')
-}
-
 async function handleAnalyze() {
   analyzing.value = true
   try {
@@ -286,10 +269,11 @@ async function handleAnalyze() {
     if (!jobId) {
       throw new Error('提交分析失败')
     }
-    const job = await waitForAnalysis(jobId)
-    if (job.status === 'FAILED') {
-      throw new Error(job.error || '分析失败')
-    }
+    // 轮询逻辑在 composables/useAnalysisPolling.ts，超时与失败的分支都在那里处理
+    const job = await pollAnalysisJob(async () => {
+      const r = await getAnalyzeJob(jobId)
+      return (r.data || {}) as AnalysisJobView
+    })
     diffResults.value = job.result || []
     analysisDegraded.value = !!job.degraded
     dialogVisible.value = true
@@ -303,21 +287,6 @@ async function handleAnalyze() {
   } finally {
     analyzing.value = false
   }
-}
-
-const HANDLE_TYPE_TEXT: Record<string, string> = {
-  SCRAP: '转报废单',
-  ASSET_ADD: '补登记',
-  MANUAL: '人工确认'
-}
-
-function handleTypeText(type?: string): string {
-  return type ? (HANDLE_TYPE_TEXT[type] || type) : '-'
-}
-
-function formatTime(value?: string): string {
-  if (!value) return '-'
-  return value.replace('T', ' ').slice(0, 16)
 }
 
 async function loadDiffs() {

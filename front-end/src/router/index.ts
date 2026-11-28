@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { resolveNavigation } from './guard'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -100,17 +101,17 @@ const router = createRouter({
   routes
 })
 
-// 路由守卫：未登录跳转登录页
+// 路由守卫：未登录跳登录页；管理页校验角色（菜单藏了但地址栏能直达，必须在这里拦）
 router.beforeEach((to, _from, next) => {
   const userStore = useUserStore()
-  if (!to.meta.noAuth && !userStore.token) {
-    next('/login')
+  const redirect = resolveNavigation(
+    { path: to.path, meta: to.meta as any },
+    { token: userStore.token, isAdmin: userStore.isAdmin }
+  )
+  if (redirect) {
+    next(redirect)
   } else {
-    if (to.path === '/login' && userStore.token) {
-      next('/')
-    } else {
-      next()
-    }
+    next()
   }
 })
 

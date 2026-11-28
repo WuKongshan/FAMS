@@ -52,7 +52,7 @@ jobs:
         run: mvn -B -ntp test
 
   frontend:
-    name: 前端构建
+    name: 前端构建与测试
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -74,6 +74,11 @@ jobs:
       - name: 类型检查并构建
         working-directory: front-end
         run: npm run build
+
+      # 单元测试覆盖运行期逻辑（路由守卫、轮询、格式化），这些类型检查发现不了
+      - name: 单元测试
+        working-directory: front-end
+        run: npm run test
 
   llm-service:
     name: llm-service 测试
